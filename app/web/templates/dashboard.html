@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<section class="cards">
+  <article class="card">
+    <h2>Database</h2>
+    <p class="{{ 'ok' if db_ok else 'bad' }}" id="db-status">{{ "reachable" if db_ok else "unreachable" }}</p>
+  </article>
+  <article class="card">
+    <h2>Background jobs</h2>
+    {% if jobs %}
+    <dl class="counts">
+      {% for status, count in jobs | dictsort %}
+      <dt>{{ status }}</dt><dd>{{ count }}</dd>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p class="muted">No jobs yet.</p>
+    {% endif %}
+  </article>
+  <article class="card">
+    <h2>Files</h2>
+    <p class="muted">File counts arrive with ingest in phase 1.</p>
+  </article>
+</section>
+{% endblock %}

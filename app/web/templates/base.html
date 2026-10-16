@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Median{% endblock %} · Median</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+  <script src="{{ url_for('static', path='vendor/htmx-2.0.11.min.js') }}" defer></script>
+  <script type="module" src="{{ url_for('static', path='js/shortcuts.js') }}"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">Median</a>
+    <nav aria-label="Main">
+      <ul>
+        {% for item in nav %}
+        <li><a href="{{ item.path }}"{% if item.path == current %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+        {% endfor %}
+      </ul>
+    </nav>
+    <button type="button" class="help-button" data-shortcuts-open title="Keyboard shortcuts (?)">?</button>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <dialog id="shortcuts" aria-labelledby="shortcuts-title">
+    <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+    <dl>
+      <dt><kbd>?</kbd></dt><dd>Show or hide this help</dd>
+      {% block shortcuts %}{% endblock %}
+    </dl>
+    <form method="dialog"><button>Close</button></form>
+  </dialog>
+</body>
+</html>

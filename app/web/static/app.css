@@ -1,0 +1,80 @@
+:root {
+  --bg: #f7f7f8;
+  --fg: #1d1d1f;
+  --muted: #6b6b72;
+  --card: #ffffff;
+  --border: #dcdce0;
+  --accent: #2f5fd0;
+  --ok: #1f7a3a;
+  --bad: #b3261e;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161618;
+    --fg: #ececf0;
+    --muted: #9a9aa3;
+    --card: #222226;
+    --border: #3a3a40;
+    --accent: #8aa8ff;
+    --ok: #6fd18e;
+    --bad: #ff8a80;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 15px/1.5 system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+a { color: var(--accent); }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.brand { font-weight: 700; text-decoration: none; color: var(--fg); }
+
+.topbar nav ul { display: flex; flex-wrap: wrap; gap: 0.25rem; margin: 0; padding: 0; list-style: none; }
+.topbar nav a { display: block; padding: 0.25rem 0.6rem; border-radius: 6px; text-decoration: none; }
+.topbar nav a[aria-current="page"] { background: var(--accent); color: var(--card); }
+
+.help-button {
+  margin-left: auto;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+.card h2 { margin-top: 0; font-size: 1rem; }
+
+.counts { display: grid; grid-template-columns: auto auto; gap: 0.25rem 1rem; margin: 0; }
+.counts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+.ok { color: var(--ok); font-weight: 600; }
+.bad { color: var(--bad); font-weight: 600; }
+.muted, .coming-soon { color: var(--muted); }
+
+dialog { border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--fg); }
+dialog dl { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; }
+dialog dd { margin: 0; }
+kbd { border: 1px solid var(--border); border-radius: 4px; padding: 0 0.3rem; font-family: ui-monospace, monospace; }

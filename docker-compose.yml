@@ -1,0 +1,53 @@
+name: median
+
+x-app: &app
+  build: .
+  image: median:latest
+  restart: unless-stopped
+  environment:
+    DATABASE_URL: ${DATABASE_URL:-postgresql://median:median@db:5432/median}
+    TEST_DATABASE_URL: ${TEST_DATABASE_URL:-postgresql://median:median@db:5432/median_test}
+    DATA_DIR: ${DATA_DIR:-/data}
+    APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Seoul}
+    APP_PASSWORD: ${APP_PASSWORD:-}
+    IMAGE_PHASH_THRESHOLD: ${IMAGE_PHASH_THRESHOLD:-6}
+    VIDEO_FRAME_THRESHOLD: ${VIDEO_FRAME_THRESHOLD:-8}
+    TRASH_RETENTION_DAYS: ${TRASH_RETENTION_DAYS:-7}
+  volumes:
+    - media-data:${DATA_DIR:-/data}
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-median}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-median}
+      POSTGRES_DB: ${POSTGRES_DB:-median}
+      POSTGRES_TEST_DB: ${POSTGRES_TEST_DB:-median_test}
+    volumes:
+      # postgres:18 keeps PGDATA under /var/lib/postgresql/18/docker.
+      - pgdata:/var/lib/postgresql
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  web:
+    <<: *app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+
+  worker:
+    <<: *app
+    command: ["procrastinate", "--app=app.jobs.app.job_app", "--log-level=info", "worker"]
+
+volumes:
+  pgdata:
+  media-data:
