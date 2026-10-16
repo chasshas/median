@@ -17,6 +17,6 @@ Verify:
 - Run `make migrate` twice (the second prints "procrastinate schema: already present"). Then `make lint` and `make test`.
 
 Known gaps:
-- In the build sandbox, Debian apt mirrors and ghcr.io blob storage were blocked, so the image itself was not built there. Compose config validated, the db service and test-db init script ran in Docker, and web and worker ran natively from the uv venv with the same commands as the compose services. Run `make up` once on a normal host to confirm the image build.
+- The cloud sandbox cannot build the image (blocked Debian mirrors and ghcr.io). The Docker build and full-stack checks run in GitHub Actions CI instead (.github/workflows/ci.yml with scripts/smoke.sh); see the CI run on the phase 0 commits.
 - The dashboard shows no file counts yet (no files table until phase 1).
 - APP_PASSWORD is read but unused until phase 8.
