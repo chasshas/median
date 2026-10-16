@@ -43,9 +43,8 @@ async def test_upload_end_to_end_with_duplicate(
     assert db_conn.execute("SELECT count(*) FROM files").fetchone() == (2,)
     tags = db_conn.execute(
         "SELECT DISTINCT t.name, ft.origin::text FROM file_tags ft JOIN tags t ON t.id = ft.tag_id"
-        " ORDER BY 1"
     ).fetchall()
-    assert tags == [("trip", "user"), ("여행", "user")]
+    assert set(tags) == {("trip", "user"), ("여행", "user")}  # no ORDER BY: collation-dependent
     staged = list(paths.staging_batch(body["batch_id"]).iterdir())
     assert len(staged) == 2  # the duplicate was deleted, no leftover .part files
 

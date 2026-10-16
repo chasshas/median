@@ -30,7 +30,7 @@ Built:
 - Jobs process_ingest and retry_file. API: POST /api/uploads (streaming multipart), GET /api/uploads/<batch_id> (JSON or htmx fragment), POST /api/files/<id>/retry. Media: GET /media/<id>/original (Range, 206) and /media/<id>/thumb.
 - Pages: /upload (drag and drop, tags, force checkbox, progress, polling batch status), /review (temporary grid of pending files and failed files with Retry), /files/<id> (img/video/audio, metadata, tags, sources, status), dashboard counts per status.
 - CLI: python -m app.cli import <directory> [--tags a,b] [--force] [--recursive]; optional read-only ./imports mount at /imports in the dev override.
-- Tests: 86 in total (70 new): tag normalization, storage, every pipeline case of the phase brief (new, duplicate, discarded duplicate, force, known remote, tag merge, video, audio, corrupt jpeg, error and retry, concurrent identical content), upload API end to end, htmx fragment, Range 206, retry API, pages, ingest() and the CLI.
+- Tests: 87 in total (71 new): tag normalization, storage, every pipeline case of the phase brief (new, duplicate, discarded duplicate, force, known remote, tag merge, video, audio with and without cover art, corrupt jpeg, error and retry, concurrent identical content), upload API end to end, htmx fragment, Range 206, retry API, pages, ingest() and the CLI.
 - scripts/smoke.sh phase 1 checks (media generated in the web container by scripts/smoke_media.py); SMOKE_LOCAL=1 runs them against a native stack.
 
 Verify:
@@ -41,7 +41,7 @@ Verify:
 - `make lint`, `make test`, `scripts/smoke.sh`.
 
 Known gaps:
-- Cloud session: Docker Hub answered 429 for postgres:18 and the image cannot be built here, so local checks ran natively against PostgreSQL 16 from the sandbox (migrations, 86 tests, uvicorn + worker + full smoke.sh with SMOKE_LOCAL=1, Chromium upload and video seek). CI runs the real image and postgres:18.
+- Cloud session: Docker Hub answered 429 for postgres:18 and the image cannot be built here, so local checks ran natively against PostgreSQL 16 from the sandbox (migrations, 87 tests, uvicorn + worker + full smoke.sh with SMOKE_LOCAL=1, Chromium upload and video seek). CI runs the real image and postgres:18.
 - Playwright's Chromium has no H.264 decoder, so the in-browser seek check used a VP9 WebM; MP4 serving is checked by Range requests (smoke.sh, tests).
 - No perceptual hashes or similar-file flags yet (phase 2); no archive/discard flow (phase 3), so trash and archive paths are only exercised by tests.
 - A file whose processing job is lost (worker killed mid-job) stays in status processing; there is no sweeper yet.

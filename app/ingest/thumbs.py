@@ -42,7 +42,12 @@ def thumb_from_png_bytes(data: bytes) -> bytes:
 
 
 async def make_thumbnail(
-    path: Path, media_kind: MediaKind, duration_ms: int | None, dest: Path
+    path: Path,
+    media_kind: MediaKind,
+    duration_ms: int | None,
+    dest: Path,
+    *,
+    has_cover: bool = False,
 ) -> bool:
     """Write the thumbnail for path to dest. Returns False when the file gets none."""
     data: bytes | None = None
@@ -55,8 +60,8 @@ async def make_thumbnail(
             png = await _frame(path, None)  # very short clips: take the first frame
         if png is not None:
             data = await asyncio.to_thread(thumb_from_png_bytes, png)
-    elif media_kind is MediaKind.audio:
-        png = await _frame(path, None)  # embedded cover art, if any
+    elif media_kind is MediaKind.audio and has_cover:
+        png = await _frame(path, None)  # embedded cover art
         if png is not None:
             data = await asyncio.to_thread(thumb_from_png_bytes, png)
     if data is None:

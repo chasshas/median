@@ -231,7 +231,11 @@ async def process_file(
             file.duration_ms = result.duration_ms
             file.metadata_ = {**(file.metadata_ or {}), **result.metadata}
             file.has_thumb = await make_thumbnail(
-                path, result.media_kind, result.duration_ms, paths.thumb_path(file.sha_hex)
+                path,
+                result.media_kind,
+                result.duration_ms,
+                paths.thumb_path(file.sha_hex),
+                has_cover=bool(result.metadata.get("cover_art")),
             )
             await compute_perceptual(session, paths, file)
             file.status = FileStatus.pending_review

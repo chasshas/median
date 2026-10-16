@@ -69,3 +69,18 @@ def make_audio(path: Path, seconds: float = 1.0) -> Path:
         check=True,
     )  # fmt: skip
     return path
+
+
+def make_audio_with_cover(path: Path, cover_png: Path) -> Path:
+    tone = make_audio(path.with_name("plain-" + path.name))
+    subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-v", "error", "-y",
+            "-i", str(tone), "-i", str(cover_png),
+            "-map", "0", "-map", "1", "-c:a", "copy", "-c:v", "png",
+            "-id3v2_version", "3", "-disposition:v", "attached_pic",
+            str(path),
+        ],
+        check=True,
+    )  # fmt: skip
+    return path

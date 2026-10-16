@@ -12,7 +12,15 @@ from app.ingest.origin import IngestOrigin
 from app.ingest.process import process_ingest, retry_file
 from app.storage import DataPaths
 from tests.ingest.helpers import events, one, run, stage
-from tests.media import gif_animated_bytes, jpeg_bytes, make_audio, make_video, png_bytes
+from tests.media import (
+    gif_animated_bytes,
+    jpeg_bytes,
+    make_audio,
+    make_audio_with_cover,
+    make_video,
+    png_bytes,
+    write,
+)
 
 pytestmark = pytest.mark.usefixtures("clean_ingest")
 
@@ -197,6 +205,18 @@ async def test_audio_without_cover(sessionmaker, paths, db_conn, tmp_path) -> No
         db_conn, "SELECT media_kind::text, duration_ms, has_thumb FROM files"
     )
     assert kind == "audio" and 900 <= duration <= 1100 and has_thumb is False
+
+
+async def test_audio_cover_art_thumbnail(sessionmaker, paths, db_conn, tmp_path) -> None:
+    cover = write(tmp_path / "cover.png", png_bytes((0, 200, 0), size=(500, 500)))
+    audio = make_audio_with_cover(tmp_path / "song.mp3", cover)
+    await run(sessionmaker, paths, audio.read_bytes(), "song.mp3")
+    kind, has_thumb, meta, sha = one(
+        db_conn, "SELECT media_kind::text, has_thumb, metadata, sha256 FROM files"
+    )
+    assert (kind, has_thumb, meta["cover_art"]) == ("audio", True, True)
+    with Image.open(paths.thumb_path(bytes(sha).hex())) as img:
+        assert img.size == (320, 320)
 
 
 async def test_corrupt_jpeg_is_other(sessionmaker, paths, db_conn) -> None:
