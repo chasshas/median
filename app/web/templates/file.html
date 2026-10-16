@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ file.title or file.original_filename or ("File " ~ file.id) }}{% endblock %}
+{% block content %}
+<h1>{{ file.title or file.original_filename or ("File " ~ file.id) }}</h1>
+<div class="file-page">
+  <figure class="viewer">
+    {% set src = "/media/" ~ file.id ~ "/original" %}
+    {% if file.media_kind.value == "image" %}
+    <img src="{{ src }}" alt="{{ file.original_filename or '' }}">
+    {% elif file.media_kind.value == "video" %}
+    <video src="{{ src }}" controls preload="metadata" {% if file.has_thumb %}poster="/media/{{ file.id }}/thumb"{% endif %}></video>
+    {% elif file.media_kind.value == "audio" %}
+    {% if file.has_thumb %}<img src="/media/{{ file.id }}/thumb" alt="Cover art">{% endif %}
+    <audio src="{{ src }}" controls preload="metadata"></audio>
+    {% else %}
+    <p><a href="{{ src }}">Open original</a></p>
+    {% endif %}
+  </figure>
+  <section class="card">
+    <h2>Details</h2>
+    <dl class="meta">
+      <dt>Status</dt><dd id="file-status">{{ file.status.value | replace("_", " ") }}</dd>
+      {% if file.error_message %}<dt>Error</dt><dd class="bad">{{ file.error_message }}</dd>{% endif %}
+      <dt>Type</dt><dd>{{ file.media_kind.value }} ({{ file.mime }})</dd>
+      <dt>Size</dt><dd>{{ file.size_bytes | filesize }}</dd>
+      {% if file.width %}<dt>Dimensions</dt><dd>{{ file.width }} &times; {{ file.height }}</dd>{% endif %}
+      {% if file.duration_ms %}<dt>Duration</dt><dd>{{ file.duration_ms | duration }}</dd>{% endif %}
+      <dt>Original name</dt><dd>{{ file.original_filename or "" }}</dd>
+      {% if file.description %}<dt>Description</dt><dd>{{ file.description }}</dd>{% endif %}
+      <dt>Collected</dt><dd>{{ file.collected_at | localtime }}</dd>
+      {% if file.archived_at %}<dt>Archived</dt><dd>{{ file.archived_at | localtime }}</dd>{% endif %}
+      {% if file.discarded_at %}<dt>Discarded</dt><dd>{{ file.discarded_at | localtime }}</dd>{% endif %}
+      <dt>SHA-256</dt><dd><code class="sha">{{ file.sha_hex }}</code></dd>
+      {% for key, value in (file.metadata_ or {}).items() %}
+      <dt>{{ key | replace("_", " ") }}</dt><dd>{{ value }}</dd>
+      {% endfor %}
+    </dl>
+    {% if file.status.value == "error" %}
+    <button type="button" hx-post="/api/files/{{ file.id }}/retry" hx-swap="none"
+      hx-on::after-request="if (event.detail.successful) location.reload()">Retry processing</button>
+    {% endif %}
+  </section>
+  <section class="card">
+    <h2>Tags</h2>
+    {% if detail.tags %}
+    <ul class="tags" id="file-tags">
+      {% for tag in detail.tags %}<li class="tag tag-{{ tag.origin }}" title="{{ tag.origin }}">{{ tag.name }}</li>{% endfor %}
+    </ul>
+    {% else %}<p class="muted">No tags.</p>{% endif %}
+  </section>
+  <section class="card">
+    <h2>Sources</h2>
+    <ul id="file-sources">
+      {% for s in detail.sources %}
+      <li>{{ s.source_key }}{% if s.remote_id %} &middot; {{ s.remote_id }}{% endif %}
+        {% if s.url %} &middot; <a href="{{ s.url }}" rel="noreferrer noopener" target="_blank">{{ s.url }}</a>{% endif %}
+        <span class="muted">{{ s.fetched_at | localtime }}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+{% endblock %}

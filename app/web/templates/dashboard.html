@@ -21,7 +21,15 @@
   </article>
   <article class="card">
     <h2>Files</h2>
-    <p class="muted">File counts arrive with ingest in phase 1.</p>
+    {% if files %}
+    <dl class="counts" id="file-counts">
+      {% for status, count in files.items() %}
+      <dt>{{ status | replace("_", " ") }}</dt><dd id="count-{{ status }}">{{ count }}</dd>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p class="muted">Database unavailable.</p>
+    {% endif %}
   </article>
 </section>
 {% endblock %}

@@ -27,11 +27,10 @@ async def test_unbuilt_pages_show_coming_soon(client: httpx.AsyncClient, item) -
     assert 'aria-current="page"' in response.text
 
 
-async def test_file_page_placeholder(client: httpx.AsyncClient) -> None:
-    response = await client.get("/files/42")
+async def test_unknown_file_page_is_404(client: httpx.AsyncClient) -> None:
+    response = await client.get("/files/999999")
 
-    assert response.status_code == 200
-    assert "Coming in phase 4" in response.text
+    assert response.status_code == 404
 
 
 async def test_htmx_is_vendored(client: httpx.AsyncClient) -> None:

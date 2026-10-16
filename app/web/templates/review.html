@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Review{% endblock %}
+{% block content %}
+<h1>Review</h1>
+<p class="muted">Pending files ({{ counts.pending_review }}). The full review flow (archive, discard, compare) arrives in phase 3.</p>
+{% if processing %}<p class="muted">{{ counts.processing }} file(s) still processing.</p>{% endif %}
+{% if errors %}
+<section class="card errors">
+  <h2>Failed ({{ counts.error }})</h2>
+  <ul>
+    {% for f in errors %}
+    <li id="error-{{ f.id }}">
+      <a href="/files/{{ f.id }}">{{ f.original_filename or ("file " ~ f.id) }}</a>
+      <span class="bad">{{ f.error_message }}</span>
+      <button type="button" hx-post="/api/files/{{ f.id }}/retry" hx-swap="none"
+        hx-on::after-request="this.textContent = event.detail.successful ? 'Queued' : 'Failed'; this.disabled = true">Retry</button>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% if pending %}
+<ul class="grid" id="review-grid">
+  {% for f in pending %}
+  <li class="tile" data-file-id="{{ f.id }}">
+    <a href="/files/{{ f.id }}">
+      {% if f.has_thumb %}
+      <img src="/media/{{ f.id }}/thumb" alt="{{ f.original_filename or '' }}" loading="lazy" width="160" height="160">
+      {% else %}
+      <span class="no-thumb">{{ f.media_kind.value }}</span>
+      {% endif %}
+      <span class="tile-name">{{ f.original_filename or ("file " ~ f.id) }}</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="muted">Nothing to review. <a href="/upload">Upload files</a>.</p>
+{% endif %}
+{% endblock %}

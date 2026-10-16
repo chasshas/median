@@ -93,3 +93,31 @@ async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
 def db_conn(migrated_db: str) -> Iterator[psycopg.Connection]:
     with psycopg.connect(migrated_db, autocommit=True) as conn:
         yield conn
+
+
+@pytest.fixture
+def paths(data_dir: Path):
+    from app.storage import DataPaths
+
+    return DataPaths(data_dir)
+
+
+@pytest.fixture
+def clean_ingest(migrated_db: str, data_dir: Path) -> Iterator[None]:
+    """Empty the ingest tables, the job queue and the media directories before a test."""
+    with psycopg.connect(migrated_db, autocommit=True) as conn:
+        conn.execute(
+            "TRUNCATE file_tags, tags, ingest_events, file_sources, files, procrastinate_jobs"
+            " RESTART IDENTITY CASCADE"
+        )
+    for name in ("staging", "archive", "thumbs", "trash"):
+        shutil.rmtree(data_dir / name, ignore_errors=True)
+    yield
+
+
+@pytest.fixture
+async def sessionmaker(migrated_db: str):
+    from app.db.engine import job_sessionmaker
+
+    async with job_sessionmaker(migrated_db) as maker:
+        yield maker

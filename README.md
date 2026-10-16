@@ -23,6 +23,8 @@ Open http://localhost:8000. `make logs` follows the logs and `make down` stops t
 | `make lint` / `make format` | Check, or apply, ruff formatting and lint |
 | `make shell` / `make psql` | Open a shell in web, or psql on the app database |
 
+To import an existing collection, put it in `./imports` (or set `IMPORTS_DIR`) and run `docker compose exec web python -m app.cli import /imports --recursive [--tags a,b] [--force]`. Files are copied; the originals stay where they are.
+
 Media and state live in the `media-data` volume (mounted at `DATA_DIR`, default `/data`), and the database lives in `pgdata`. `docker-compose.override.yml` is for development: it bind-mounts the source and reloads on changes. For a deployment, leave it out: `docker compose -f docker-compose.yml up -d`.
 
 ## Phases
@@ -32,7 +34,7 @@ The project is built in ten phases, 0 to 9. The scope of each phase after 0 is p
 | Phase | Scope |
 | --- | --- |
 | 0 | Bootstrap: Docker stack, app skeleton, migrations, job queue, base UI (done) |
-| 1 | Ingest service, storage layout, upload page, exact duplicates |
+| 1 | Ingest service, storage layout, upload page, exact duplicates (done) |
 | 2 | Perceptual hashes and similar-file detection |
 | 3 | Review: archive, discard, undo, trash |
 | 4 | Library: folders, tags, file page |

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Upload{% endblock %}
+{% block content %}
+<h1>Upload</h1>
+<form id="upload-form" class="upload-form" action="/api/uploads" method="post" enctype="multipart/form-data">
+  <label class="dropzone" id="dropzone" for="upload-files">
+    <input type="file" id="upload-files" name="files" multiple>
+    <span>Drop files here or <u>choose files</u></span>
+    <span class="muted" id="upload-selection">No files selected</span>
+  </label>
+  <label>Tags (comma separated, optional)
+    <input type="text" name="tags" placeholder="artist:someone, landscape">
+  </label>
+  <label class="checkbox">
+    <input type="checkbox" name="force" value="true">
+    Re-ingest even if previously discarded
+  </label>
+  <div class="actions">
+    <button type="submit" id="upload-submit">Upload</button>
+    <progress id="upload-progress" max="100" value="0" hidden></progress>
+    <span id="upload-message" class="muted" role="status"></span>
+  </div>
+</form>
+<section id="upload-batches" aria-live="polite"></section>
+<script type="module" src="{{ url_for('static', path='js/upload.js') }}"></script>
+{% endblock %}
+{% block shortcuts %}
+<dt><kbd>U</kbd></dt><dd>Choose files to upload</dd>
+{% endblock %}

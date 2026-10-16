@@ -1,0 +1,11 @@
+<article class="card batch" id="batch-{{ batch.batch_id }}"
+  {% if not batch.done %}hx-get="/api/uploads/{{ batch.batch_id }}" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %}
+  data-batch-done="{{ 'true' if batch.done else 'false' }}">
+  <h2>Batch <code>{{ batch.batch_id[:8] }}</code> {% if batch.done %}<span class="ok">done</span>{% else %}<span class="muted">processing {{ batch.pending }}&hellip;</span>{% endif %}</h2>
+  <dl class="counts">
+    {% for outcome, count in batch.counts.items() %}
+    <dt>{{ outcome | replace("_", " ") }}</dt><dd data-outcome="{{ outcome }}">{{ count }}</dd>
+    {% endfor %}
+  </dl>
+  {% if batch.done %}<p><a href="/review">Go to review</a></p>{% endif %}
+</article>

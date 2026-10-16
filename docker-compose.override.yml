@@ -6,6 +6,9 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - .:/app
+      # Optional: put an existing collection in ./imports, then
+      # docker compose exec web python -m app.cli import /imports --recursive
+      - ${IMPORTS_DIR:-./imports}:/imports:ro
 
   worker:
     environment:
