@@ -283,3 +283,29 @@ button.danger, button[type="submit"].danger { background: var(--card); color: va
 .folder-picker label:has(input:checked) { background: color-mix(in srgb, var(--accent) 18%, var(--card)); }
 .panel-tags label.checkbox { display: flex; gap: 0.35rem; align-items: center; }
 @media (max-width: 700px) { .panel-columns { grid-template-columns: 1fr; } }
+
+/* Sources and jobs (phase 5) */
+.data-table { width: 100%; border-collapse: collapse; padding: 0; }
+.data-table th, .data-table td { text-align: left; padding: 0.35rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.notice { padding: 0.5rem 0.75rem; border-left: 4px solid var(--accent); background: var(--card); }
+.addon-errors { border-color: var(--bad); }
+.addon-errors code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.addon-list dd { margin: 0 0 0.5rem 1rem; }
+.source-form fieldset { display: grid; gap: 0.5rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1rem; }
+.source-form label { display: grid; gap: 0.2rem; }
+.source-form label.check { display: flex; gap: 0.4rem; align-items: center; }
+.config-field { display: grid; gap: 0.2rem; }
+.field-error { color: var(--bad); font-size: 0.85rem; }
+.field-help { font-size: 0.85rem; }
+.job-status { display: inline-block; padding: 0 0.45rem; border-radius: 999px; border: 1px solid var(--border); font-size: 0.85rem; }
+.job-queued, .job-running { border-color: var(--accent); color: var(--accent); }
+.job-succeeded { border-color: var(--ok); color: var(--ok); }
+.job-failed, .job-cancelled { border-color: var(--bad); color: var(--bad); }
+.job-log { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; max-height: 60vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.8rem; }
+button[type="submit"].toggle { background: var(--card); }
+button[type="submit"].toggle[aria-pressed="true"] { color: var(--ok); border-color: var(--ok); }
+button[type="submit"].toggle[aria-pressed="false"] { color: var(--muted); border-color: var(--border); }
+.source-form input[type="number"] { padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--fg); font: inherit; }
+.row-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+#job-stats { max-width: 24rem; }

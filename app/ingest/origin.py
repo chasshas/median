@@ -20,3 +20,6 @@ class IngestOrigin(BaseModel):
     description: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     force: bool = False
+    # A crawl source's default folder: stored in files.metadata of new files so the archive
+    # panel preselects it.
+    default_folder_id: int | None = None

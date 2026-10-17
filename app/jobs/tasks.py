@@ -2,6 +2,7 @@
 
 import logging
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.config import get_settings
 from app.db.engine import job_sessionmaker
@@ -75,3 +76,42 @@ async def purge_trash(timestamp: int | None = None) -> dict[str, int]:
     stats = await run_purge_trash(settings.database_url, get_paths(), settings.trash_retention_days)
     logger.info("purge_trash finished: %s", stats.as_dict())
     return stats.as_dict()
+
+
+@job_app.task(name="run_crawl", queue="crawl")
+async def run_crawl(job_run_id: int) -> str:
+    from app.crawl import runner
+    from app.crawl.registry import get_registry
+
+    async with job_sessionmaker(get_settings().database_url) as sessionmaker:
+        status = await runner.run_crawl(sessionmaker, get_paths(), get_registry(), job_run_id)
+    return status.value
+
+
+# Every minute: queue the runs of sources whose cron schedule is due.
+@job_app.periodic(cron="* * * * *")
+@job_app.task(name="schedule_crawls", queue="maintenance", queueing_lock="schedule_crawls")
+async def schedule_crawls(timestamp: int | None = None) -> dict[str, object]:
+    from app.crawl.scheduling import schedule_due_runs
+
+    settings = get_settings()
+    async with (
+        job_sessionmaker(settings.database_url) as sessionmaker,
+        sessionmaker() as session,
+    ):
+        result = await schedule_due_runs(session, ZoneInfo(settings.app_timezone))
+    return {
+        "queued": result.queued,
+        "skipped_active": result.skipped_active,
+        "reaped": result.reaped,
+    }
+
+
+def _discover_addons() -> None:
+    """Add-on discovery at worker startup (the worker imports this module when it starts)."""
+    from app.crawl.registry import get_registry
+
+    get_registry()
+
+
+_discover_addons()

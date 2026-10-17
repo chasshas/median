@@ -104,6 +104,12 @@ def _conditions(filters: QueueFilters) -> list[ColumnElement[bool]]:
     return where
 
 
+def default_folder_id(file: File) -> int | None:
+    """The default folder of the crawl source that brought the file (files.metadata)."""
+    value = (file.metadata_ or {}).get("default_folder_id")
+    return value if isinstance(value, int) else None
+
+
 def queue_item(file: File, badge: SimilarBadges | None) -> dict[str, object]:
     return {
         "id": file.id,
@@ -120,6 +126,7 @@ def queue_item(file: File, badge: SimilarBadges | None) -> dict[str, object]:
         "thumb_url": f"/media/{file.id}/thumb" if file.has_thumb else None,
         "original_url": f"/media/{file.id}/original",
         "error_message": file.error_message,
+        "default_folder_id": default_folder_id(file),
         "similar": {
             "kept": badge.kept if badge else [],
             "discarded": badge.discarded if badge else [],

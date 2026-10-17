@@ -100,6 +100,39 @@ def atomic_write_bytes(dest: Path, data: bytes) -> Path:
     return dest
 
 
+def write_private_file(dest: Path, data: bytes) -> Path:
+    """Write a secret atomically: directory mode 0700, file mode 0600 from the start."""
+    dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(dest.parent, 0o700)
+    tmp = _temp_name(dest)
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp, 0o600)  # in case the umask removed bits we did not ask for
+        os.replace(tmp, dest)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            tmp.unlink()
+        raise
+    _fsync_dir(dest.parent)
+    return dest
+
+
+def remove_tree(path: Path) -> None:
+    """Delete a directory tree; a missing directory is fine."""
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def fresh_dir(path: Path) -> Path:
+    """An empty directory at path (an existing one is emptied first)."""
+    shutil.rmtree(path, ignore_errors=True)
+    path.mkdir(parents=True)
+    return path
+
+
 def unlink_quietly(path: Path) -> None:
     with contextlib.suppress(FileNotFoundError):
         path.unlink()

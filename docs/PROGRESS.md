@@ -119,3 +119,30 @@ Known gaps:
 - Library actions (moves, bulk tags) have no undo; the selection is per page.
 - The archive panel loads the whole folder tree each time it opens (fine for hundreds of folders).
 - Undoing a review action whose tag was later merged into another tag skips that tag's rows.
+
+## Phase 5 - 2026-10-17 - Crawler add-on framework
+Built:
+- Migration 0005: enums job_kind and job_status; tables crawl_sources (plus max_runtime_minutes) and job_runs (plus queued_at, cancel_requested, queue_job_id) with a partial unique index allowing one queued or running run per source; foreign keys from file_sources.source_id, file_sources.job_run_id and ingest_events.job_run_id (ON DELETE SET NULL). Models in app/db/models_crawl.py.
+- app/crawl/base.py: Addon (key, name, version, description, ConfigModel, async run), CrawledItem, CrawlContext (work_dir, state_dir, secrets_dir, log, emit, is_known, known_remote_ids, is_cancelled, sleep, run_subprocess), SecretFile. app/crawl/procs.py: run_subprocess (argument list, own process group, PATH/LANG/HOME plus explicit variables, output streamed to the job log, group killed on timeout, cancel or task cancellation, last 50 lines returned).
+- app/crawl/registry.py: discovery of the media_archive.addons entry points and DATA_DIR/addons/*.py (module-level ADDON) at web and worker startup; broken add-ons and duplicate keys are recorded and shown on /sources.
+- app/crawl/runner.py and task run_crawl (queue crawl): queued -> running -> succeeded, failed or cancelled; job log at logs/jobs/<id>.log; emit() through the ingest service with source defaults (crawler tags, default folder in files.metadata); cancel flag polled every second; per-source runtime limit; work_dir always removed. app/crawl/service.py: sources CRUD with config validation and secret files (mode 0600), queue_run, cancel_run, lost-run reaping, run stats from ingest_events. app/crawl/scheduling.py and the periodic task schedule_crawls (every minute, croniter, APP_TIMEZONE). app/crawl/forms.py: forms generated from the add-on's JSON schema.
+- Built-in demo add-on (app/addons/demo.py, entry point demo): count, seed, tags, delay_seconds; structured Pillow images with remote ids demo-<seed>-<n>.
+- Archive panel: preselects the crawl source's default folder (queue items carry default_folder_id).
+- API: /api/sources (list with add-ons, fields and add-on errors; create; get; put; patch enabled; delete; run) and /api/jobs (list with stats; detail; log; cancel). Pages: /sources (list, add-on errors, new/edit forms, toggle, Run now, delete), /jobs (runs with status, source, duration, stats) and /jobs/<id> (stats, live log tail polling every 2 s, Cancel). docs/ADDONS.md for add-on authors.
+- Packaging: uv_build backend so the project and its entry points are installed; croniter dependency; worker --concurrency=4.
+- Tests: 230 in total (45 new crawl tests, plus schema checks): discovery (entry point, single file, seven kinds of broken files, duplicate keys, errors on /sources and in the API), run_subprocess (output and tail, literal "; rm -rf" argument, string refused, limited environment, cwd, timeout and cancel killing a sleeping child of the group, task cancellation), demo run end to end (10 files with file_sources linked to source and run, demo plus default tags as crawler tags, default folder in the review queue, stats, log, work_dir removed) and a second run with only skipped_known_remote, known remote lookups across statuses, cancelling a running demo run (under 3 s), cancel killing a subprocess group, a stubborn add-on, the runtime limit, failing add-on, missing add-on and invalid config, cancelling a queued run, lost-run reaping, scheduler (APP_TIMEZONE, due/not due, coalescing, disabled and manual sources skipped, no overlap, the periodic task), every form field kind rendered and parsed, form create/edit with secret upload (0600) and validation errors, JSON API and pages.
+- scripts/smoke.sh phase 5 checks: demo source with count 10 created through the form, Run now, 10 pending files with the right tags and default folder, second run with 10 skipped and no new files, a source scheduled every minute producing two runs about 60 s apart without overlap, cancelling a long run.
+
+Verify:
+- `make up`, open http://localhost:8000/sources, choose "Demo images", Create, set count 10 and a tag, Create source, then Run now: the run page shows the log and ends with new 10; /review shows the 10 images with the tags. Run now again: the run shows skipped known remote 10 and the dashboard totals do not change.
+- Create a demo source with schedule `* * * * *`: /jobs?source_id=<id> gains one run per minute; disable it with the Enabled button.
+- Create a demo source with count 1000 and delay seconds 1, Run now, press Cancel on the run page: it turns cancelled within a few seconds.
+- Put a single-file add-on in DATA_DIR/addons/ (see docs/ADDONS.md) and restart web and worker (`make down && make up`); a broken one appears under "Add-on errors" on /sources.
+- `make lint`, `make test`, `scripts/smoke.sh`.
+
+Known gaps:
+- Cloud session: no Docker daemon, so checks ran natively against PostgreSQL 16 (migrations twice, 230 tests, uvicorn + worker with --concurrency=4, full smoke.sh with SMOKE_LOCAL=1 including the scheduled and cancel checks). Headless Chromium (Playwright from the sandbox's global Node install) checked /sources, the generated form, N and Esc, the live run page (emitted count rising, Cancel turned the run cancelled in about 2 s, polling stopped) and the archive panel preselecting the source's default folder. CI builds the image (now also installing the project with uv_build) and runs postgres:18.
+- New or changed add-ons need a restart of web and worker; there is no reload button.
+- Runs of other kinds (rehash, purge_trash, ...) still do not write job_runs rows; that comes with the settings and maintenance work in phase 8.
+- Cancelling or the runtime limit cannot interrupt blocking (non-async) code inside an add-on; such an add-on stops at its next await.
+- The jobs page shows the newest 100 runs without paging; old job logs are never deleted.

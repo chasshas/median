@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Sources{% endblock %}
+{% block content %}
+<h1>Sources</h1>
+{% if notice %}<p class="notice" id="notice">{{ {"already-active": "A run of this source is already queued or running.", "delete-active": "A source cannot be deleted while it has a queued or running run.", "deleted": "Source deleted."}.get(notice, "Saved.") }}</p>{% endif %}
+
+{% if addon_errors %}
+<section class="card addon-errors" id="addon-errors">
+  <h2>Add-on errors</h2>
+  <ul>
+    {% for err in addon_errors %}
+    <li><strong>{{ err.origin }}</strong>{% if err.key %} (key {{ err.key }}){% endif %}: <code>{{ err.error }}</code></li>
+    {% endfor %}
+  </ul>
+  <p class="muted">Fix the add-on and restart web and worker; add-ons are discovered at startup.</p>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>New source</h2>
+  {% if addons %}
+  <form method="get" action="/sources/new" class="inline-form">
+    <label>Add-on
+      <select name="addon" id="new-addon">
+        {% for a in addons %}<option value="{{ a.key }}">{{ a.name }} ({{ a.key }} {{ a.version }})</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Create</button>
+  </form>
+  <dl class="addon-list">
+    {% for a in addons %}<dt>{{ a.name }} <span class="muted">{{ a.key }} {{ a.version }}</span></dt><dd>{{ a.description or "No description." }} <span class="muted">({{ a.origin }})</span></dd>{% endfor %}
+  </dl>
+  {% else %}
+  <p class="muted">No add-ons are loaded.</p>
+  {% endif %}
+  <p class="muted">New add-ons (entry points or DATA_DIR/addons/*.py) are found when web and worker start.</p>
+</section>
+
+{% if sources %}
+<table class="data-table card" id="sources-table">
+  <thead><tr><th scope="col">Name</th><th scope="col">Add-on</th><th scope="col">Schedule</th><th scope="col">Enabled</th><th scope="col">Last run</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+  <tbody>
+    {% for v in sources %}{% set s = v.source %}
+    <tr data-source-id="{{ s.id }}">
+      <td><a href="/sources/{{ s.id }}/edit">{{ s.name }}</a></td>
+      <td>{{ v.addon_name or s.addon_key }}{% if not v.addon_name %} <span class="bad">(not loaded)</span>{% endif %}</td>
+      <td>{% if s.schedule %}<code>{{ s.schedule }}</code>{% else %}<span class="muted">manual</span>{% endif %}</td>
+      <td>
+        <form method="post" action="/sources/{{ s.id }}/toggle" class="inline-form">
+          <button type="submit" class="toggle" aria-pressed="{{ 'true' if s.enabled else 'false' }}" title="{{ 'Disable' if s.enabled else 'Enable' }}">{{ "Enabled" if s.enabled else "Disabled" }}</button>
+        </form>
+      </td>
+      <td>{% if v.last_run %}<a href="/jobs/{{ v.last_run.id }}" class="job-status job-{{ v.last_run.status.value }}">{{ v.last_run.status.value }}</a> <span class="muted">{{ (v.last_run.finished_at or v.last_run.started_at or v.last_run.queued_at) | localtime }}</span>{% else %}<span class="muted">never</span>{% endif %}</td>
+      <td><div class="row-actions">
+        <form method="post" action="/sources/{{ s.id }}/run" class="inline-form"><button type="submit" data-run-now>Run now</button></form>
+        <a href="/jobs?source_id={{ s.id }}">Runs</a>
+        <form method="post" action="/sources/{{ s.id }}/delete" class="inline-form" onsubmit="return confirm('Delete source {{ s.name | e }}? Its files stay.')"><button type="submit" class="danger">Delete</button></form>
+      </div></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No sources yet.</p>
+{% endif %}
+<script type="module" src="{{ url_for('static', path='js/sources.js') }}"></script>
+{% endblock %}
+{% block shortcuts %}
+<dt><kbd>N</kbd></dt><dd>New source with the selected add-on</dd>
+{% endblock %}

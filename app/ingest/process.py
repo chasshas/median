@@ -149,6 +149,7 @@ async def process_ingest(
                     original_filename=original_filename,
                     title=origin.title,
                     description=origin.description,
+                    metadata_=_initial_metadata(origin),
                 )
                 .on_conflict_do_nothing(index_elements=[File.sha256])
                 .returning(File.id)
@@ -168,6 +169,12 @@ async def process_ingest(
         return IngestOutcome.error
 
     return await process_file(sessionmaker, paths, file_id, ctx)
+
+
+def _initial_metadata(origin: IngestOrigin) -> dict[str, object]:
+    if origin.default_folder_id is None:
+        return {}
+    return {"default_folder_id": origin.default_folder_id}
 
 
 async def _handle_duplicate(

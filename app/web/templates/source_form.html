@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit " ~ source.name if source else "New source" }}{% endblock %}
+{% block content %}
+<h1>{{ "Edit source" if source else "New source" }}</h1>
+<p class="muted">Add-on: <strong>{{ info.name if info else addon_key }}</strong> ({{ addon_key }}{% if info %} {{ info.version }}{% endif %}){% if info and info.description %} - {{ info.description }}{% endif %}</p>
+{% if message %}<p class="errors" id="form-error" role="alert">{{ message }}</p>{% endif %}
+{% if not info %}<p class="bad">This add-on is not loaded, so its configuration cannot be edited.</p>{% endif %}
+<form method="post" enctype="multipart/form-data" class="source-form card" id="source-form"
+      action="{{ '/sources/%d/edit' % source.id if source else '/sources/new?addon=' ~ addon_key }}">
+  <fieldset>
+    <legend>Source</legend>
+    <label>Name <input type="text" name="name" value="{{ values.name }}" required maxlength="200" autofocus></label>
+    {% if errors.name %}<span class="field-error">{{ errors.name }}</span>{% endif %}
+    <label>Schedule (cron, {{ "APP_TIMEZONE" }}) <input type="text" name="schedule" value="{{ values.schedule }}" placeholder="empty = manual only, e.g. */30 * * * *"></label>
+    {% if errors.schedule %}<span class="field-error">{{ errors.schedule }}</span>{% endif %}
+    <label class="check"><input type="checkbox" name="enabled"{% if values.enabled %} checked{% endif %}> Enabled (scheduled runs)</label>
+    <label>Default folder
+      <select name="default_folder_id">
+        <option value="">(none: the last used folder)</option>
+        {% for f in folders %}<option value="{{ f.id }}"{% if f.id == values.default_folder_id %} selected{% endif %}>{{ f.path }}</option>{% endfor %}
+      </select>
+    </label>
+    {% if errors.default_folder_id %}<span class="field-error">{{ errors.default_folder_id }}</span>{% endif %}
+    <label>Default tags (comma separated, added as crawler tags) <input type="text" name="default_tags" value="{{ values.default_tags }}"></label>
+    <label>Maximum runtime (minutes) <input type="number" name="max_runtime_minutes" min="1" max="10080" value="{{ values.max_runtime_minutes }}"></label>
+    {% if errors.max_runtime_minutes %}<span class="field-error">{{ errors.max_runtime_minutes }}</span>{% endif %}
+  </fieldset>
+  {% if fields %}
+  <fieldset id="config-fields">
+    <legend>Configuration</legend>
+    {% for f in fields %}
+    <div class="config-field" data-kind="{{ f.kind }}" data-field="{{ f.name }}">
+      {% if f.kind == "boolean" %}
+      <label class="check"><input type="checkbox" name="{{ f.input_name }}"{% if f.value %} checked{% endif %}> {{ f.label }}</label>
+      {% elif f.kind == "enum" %}
+      <label>{{ f.label }}
+        <select name="{{ f.input_name }}"{% if f.required %} required{% endif %}>
+          {% if not f.required %}<option value="">(default)</option>{% endif %}
+          {% for o in f.options %}<option value="{{ o }}"{% if o == f.text_value %} selected{% endif %}>{{ o }}</option>{% endfor %}
+        </select>
+      </label>
+      {% elif f.kind == "integer" or f.kind == "number" %}
+      <label>{{ f.label }} <input type="number" name="{{ f.input_name }}" value="{{ f.text_value }}"{% if f.kind == "number" %} step="any"{% endif %}{% if f.minimum is not none %} min="{{ f.minimum }}"{% endif %}{% if f.maximum is not none %} max="{{ f.maximum }}"{% endif %}{% if f.required %} required{% endif %}></label>
+      {% elif f.kind == "list" %}
+      <label>{{ f.label }} <span class="muted">(one per line)</span> <textarea name="{{ f.input_name }}" rows="3">{{ f.text_value }}</textarea></label>
+      {% elif f.kind == "secret" %}
+      <label>{{ f.label }} <span class="muted">(secret file, stored with mode 0600)</span> <input type="file" name="{{ f.input_name }}"></label>
+      {% if f.secret_present %}<span class="secret-state">A file is stored. <label class="check"><input type="checkbox" name="{{ f.input_name }}.remove"> Remove it</label></span>{% else %}<span class="muted secret-state">No file stored.</span>{% endif %}
+      {% elif f.kind == "json" %}
+      <label>{{ f.label }} <span class="muted">(JSON)</span> <textarea name="{{ f.input_name }}" rows="3">{{ f.text_value }}</textarea></label>
+      {% else %}
+      <label>{{ f.label }} <input type="text" name="{{ f.input_name }}" value="{{ f.text_value }}"{% if f.required %} required{% endif %}></label>
+      {% endif %}
+      {% if f.description %}<span class="muted field-help">{{ f.description }}</span>{% endif %}
+      {% if errors[f.name] %}<span class="field-error">{{ errors[f.name] }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </fieldset>
+  {% endif %}
+  <div class="actions">
+    <button type="submit">{{ "Save" if source else "Create source" }}</button>
+    <a href="/sources">Cancel</a>
+  </div>
+</form>
+{% endblock %}

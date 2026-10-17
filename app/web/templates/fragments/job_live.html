@@ -1,0 +1,21 @@
+<section id="job-live" class="job-live"{% if run.is_active %} hx-get="/jobs/{{ run.id }}/fragments/live" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %} data-status="{{ run.status.value }}">
+  <div class="card">
+    <dl class="meta">
+      <dt>Status</dt><dd><span class="job-status job-{{ run.status.value }}" id="job-status">{{ run.status.value }}</span>{% if run.cancel_requested and run.is_active %} <span class="muted">(cancel requested)</span>{% endif %}</dd>
+      <dt>Kind</dt><dd>{{ run.kind.value }}</dd>
+      <dt>Queued</dt><dd>{{ run.queued_at | localtime }}</dd>
+      <dt>Started</dt><dd>{{ run.started_at | localtime }}</dd>
+      <dt>Finished</dt><dd>{{ run.finished_at | localtime }}</dd>
+      <dt>Duration</dt><dd>{{ view.duration_seconds | seconds }}</dd>
+      {% if run.error %}<dt>Error</dt><dd class="bad" id="job-error">{{ run.error }}</dd>{% endif %}
+    </dl>
+    <dl class="counts" id="job-stats">
+      {% for key, value in view.stats.as_dict().items() %}<dt>{{ key | replace("_", " ") }}</dt><dd data-stat="{{ key }}">{{ value }}</dd>{% endfor %}
+    </dl>
+    {% if run.is_active %}
+    <form method="post" action="/jobs/{{ run.id }}/cancel" class="inline-form"><button type="submit" class="danger" id="cancel-run">Cancel</button></form>
+    {% endif %}
+  </div>
+  <h2>Log{% if run.log_path %} <span class="muted">{{ run.log_path }}</span>{% endif %}</h2>
+  <pre class="job-log" id="job-log">{{ log or "(no output yet)" }}</pre>
+</section>

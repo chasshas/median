@@ -112,9 +112,12 @@ class FileSource(Base):
     source_key: Mapped[str] = mapped_column(Text, nullable=False)
     remote_id: Mapped[str | None] = mapped_column(Text)
     url: Mapped[str | None] = mapped_column(Text)
-    # Foreign keys to crawl_sources and job_runs arrive in phase 5.
-    source_id: Mapped[int | None] = mapped_column(BigInteger)
-    job_run_id: Mapped[int | None] = mapped_column(BigInteger)
+    source_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("crawl_sources.id", ondelete="SET NULL")
+    )
+    job_run_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("job_runs.id", ondelete="SET NULL")
+    )
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -124,6 +127,8 @@ class FileSource(Base):
 
     __table_args__ = (
         Index("ix_file_sources_file_id", "file_id"),
+        Index("ix_file_sources_source_id", "source_id"),
+        Index("ix_file_sources_job_run_id", "job_run_id"),
         Index(
             "uq_file_sources_source_key_remote_id",
             "source_key",
@@ -150,7 +155,9 @@ class IngestEvent(Base):
     source_key: Mapped[str] = mapped_column(Text, nullable=False)
     remote_id: Mapped[str | None] = mapped_column(Text)
     url: Mapped[str | None] = mapped_column(Text)
-    job_run_id: Mapped[int | None] = mapped_column(BigInteger)
+    job_run_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("job_runs.id", ondelete="SET NULL")
+    )
     batch_id: Mapped[str | None] = mapped_column(Text)
     detail: Mapped[str | None] = mapped_column(Text)
 
@@ -159,3 +166,7 @@ class IngestEvent(Base):
         Index("ix_ingest_events_job_run_id", "job_run_id"),
         Index("ix_ingest_events_file_id", "file_id"),
     )
+
+
+# file_sources and ingest_events reference crawl_sources and job_runs.
+from app.db import models_crawl  # noqa: E402, F401

@@ -29,8 +29,8 @@ NAV: tuple[NavItem, ...] = (
     NavItem("/library", "Library", None),
     NavItem("/search", "Search", 7),
     NavItem("/tags", "Tags", None),
-    NavItem("/sources", "Sources", 5),
-    NavItem("/jobs", "Jobs", 5),
+    NavItem("/sources", "Sources", None),
+    NavItem("/jobs", "Jobs", None),
     NavItem("/settings", "Settings", 8),
 )
 

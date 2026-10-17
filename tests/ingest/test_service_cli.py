@@ -21,22 +21,25 @@ def test_batch_ids() -> None:
 async def test_ingest_moves_and_defers(
     app: FastAPI, paths, db_conn: psycopg.Connection, tmp_path: Path
 ) -> None:
+    run_id = db_conn.execute(
+        "INSERT INTO job_runs (kind, status) VALUES ('crawl', 'running') RETURNING id"
+    ).fetchone()[0]
     src = write(tmp_path / "in" / "photo.png", png_bytes((5, 50, 5)))
-    ticket = await ingest(src, IngestOrigin(source_key="site", job_run_id=12), paths=paths)
+    ticket = await ingest(src, IngestOrigin(source_key="site", job_run_id=run_id), paths=paths)
 
     assert not src.exists()
-    assert ticket.batch_id == "run-12"
-    assert ticket.staging_path == "staging/run-12/photo.png"
+    assert ticket.batch_id == f"run-{run_id}"
+    assert ticket.staging_path == f"staging/run-{run_id}/photo.png"
     assert paths.resolve(ticket.staging_path).is_file()
     job = db_conn.execute(
         "SELECT task_name, args->>'batch_id' FROM procrastinate_jobs WHERE id = %s",
         (ticket.job_id,),
     ).fetchone()
-    assert job == ("process_ingest", "run-12")
+    assert job == ("process_ingest", f"run-{run_id}")
 
     # A second file with the same name in the batch gets a distinct staging name.
     src2 = write(tmp_path / "in" / "photo.png", png_bytes((6, 60, 6)))
-    second = await ingest(src2, IngestOrigin(job_run_id=12), paths=paths)
+    second = await ingest(src2, IngestOrigin(job_run_id=run_id), paths=paths)
     assert second.staging_path != ticket.staging_path
 
     await run_queued_jobs()

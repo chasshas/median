@@ -38,7 +38,18 @@ def duration(ms: int | None) -> str:
     return f"{hours}:{minutes:02d}:{sec:05.2f}" if hours else f"{minutes}:{sec:05.2f}"
 
 
+def seconds(value: float | None) -> str:
+    """A duration in seconds as 1:02:03 or 2:03."""
+    if value is None:
+        return ""
+    total = int(value)
+    hours, rest = divmod(total, 3600)
+    minutes, sec = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{sec:02d}" if hours else f"{minutes}:{sec:02d}"
+
+
 templates.env.filters["localtime"] = localtime
+templates.env.filters["seconds"] = seconds
 templates.env.filters["filesize"] = filesize
 templates.env.filters["duration"] = duration
 

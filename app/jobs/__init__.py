@@ -10,6 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.jobs.app import job_app, make_connector
 
 
+class AlreadyQueued(Exception):
+    """A job with the same queueing lock is already waiting in the queue."""
+
+
 @contextlib.asynccontextmanager
 async def open_jobs(database_url: str) -> AsyncIterator[None]:
     """Open the job queue on database_url for the duration of the block (web process, CLI)."""
@@ -19,8 +23,18 @@ async def open_jobs(database_url: str) -> AsyncIterator[None]:
 
 
 async def run_queued_jobs() -> None:
-    """Run every queued job in this process, then return (tests and one-off commands)."""
-    await job_app.run_worker_async(wait=False, install_signal_handlers=False)
+    """Run every queued job in this process, then return (tests and one-off commands).
+
+    Periodic tasks are not deferred here: only the long-running worker schedules them.
+    """
+    from procrastinate.periodic import PeriodicRegistry
+
+    registry = job_app.periodic_registry
+    job_app.periodic_registry = PeriodicRegistry()
+    try:
+        await job_app.run_worker_async(wait=False, install_signal_handlers=False)
+    finally:
+        job_app.periodic_registry = registry
 
 
 async def defer_ping(message: str = "ping") -> int:
@@ -65,6 +79,44 @@ async def defer_purge_trash() -> int:
     from app.jobs.tasks import purge_trash
 
     return await purge_trash.defer_async()
+
+
+def crawl_lock(source_id: int) -> str:
+    return f"crawl-source-{source_id}"
+
+
+async def defer_run_crawl(job_run_id: int, source_id: int | None) -> int:
+    """Queue run_crawl. Per source: one waiting job (queueing lock), one running job (lock)."""
+    import procrastinate.exceptions
+
+    from app.jobs.tasks import run_crawl
+
+    options: dict[str, Any] = {}
+    if source_id is not None:
+        options = {"queueing_lock": crawl_lock(source_id), "lock": crawl_lock(source_id)}
+    try:
+        return await run_crawl.configure(**options).defer_async(job_run_id=job_run_id)
+    except procrastinate.exceptions.AlreadyEnqueued as exc:
+        raise AlreadyQueued(str(exc)) from exc
+
+
+async def cancel_queue_job(job_id: int) -> bool:
+    """Cancel a queue job that has not started yet. True if it was cancelled."""
+    try:
+        return await job_app.job_manager.cancel_job_by_id_async(job_id)
+    except Exception:
+        return False
+
+
+async def queue_job_statuses(session: AsyncSession, job_ids: list[int]) -> dict[int, str]:
+    """Status (todo, doing, succeeded, failed, cancelled, aborted) of queue jobs by id."""
+    if not job_ids:
+        return {}
+    result = await session.execute(
+        text("SELECT id, status::text FROM procrastinate_jobs WHERE id = ANY(:ids)"),
+        {"ids": job_ids},
+    )
+    return {int(job_id): status for job_id, status in result.all()}
 
 
 async def job_counts(session: AsyncSession) -> dict[str, int]:

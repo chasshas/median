@@ -73,6 +73,11 @@ class DataPaths:
         return self.root / "secrets"
 
     @property
+    def addons(self) -> Path:
+        """Single-file add-ons (DATA_DIR/addons/*.py)."""
+        return self.root / "addons"
+
+    @property
     def tools_venv(self) -> Path:
         return self.root / "tools" / "venv"
 
@@ -104,6 +109,9 @@ class DataPaths:
 
     def addon_state_dir(self, source_id: int) -> Path:
         return self.addon_state / str(source_id)
+
+    def secrets_dir(self, source_id: int) -> Path:
+        return self.secrets / str(source_id)
 
     def job_log(self, job_run_id: int) -> Path:
         return self.job_logs / f"{job_run_id}.log"

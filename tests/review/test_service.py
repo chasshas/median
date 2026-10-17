@@ -421,7 +421,7 @@ async def test_purge_trash_task_is_daily_and_uses_settings(sessionmaker, paths, 
     from app.jobs.tasks import purge_trash as purge_task
 
     periodic = [p for p in job_app.periodic_registry.periodic_tasks.values()]
-    assert [(p.task.name, p.cron) for p in periodic] == [("purge_trash", "17 3 * * *")]
+    assert ("purge_trash", "17 3 * * *") in [(p.task.name, p.cron) for p in periodic]
 
     a, b = await pending(sessionmaker, paths, db_conn, 2)
     await decide(sessionmaker, service.discard, paths, [a, b])

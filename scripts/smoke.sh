@@ -461,4 +461,116 @@ reply=$(post_json "/api/tags/$cats_id/rename" '{"name": "cat", "merge": true}')
 grep -q 'data-tag-name="cat" data-count="'"$expected"'"' <<<"$(curl -fsS "$BASE/tags")" || fail "/tags count"
 echo "PASS renaming 'cats' to existing 'cat' warns (409 merge_into), then merges: $(json_get "$reply" 'd["tag"]')"
 
+# Phase 5: crawler add-on framework (demo add-on, run now, recrawl, schedule, cancel).
+for path in /sources /jobs; do
+    page=$(curl -fsS "$BASE$path") || fail "GET $path"
+    grep -q "Coming in phase" <<<"$page" && fail "$path is still a placeholder"
+done
+grep -q '<option value="demo">' <<<"$(curl -fsS "$BASE/sources")" || fail "demo add-on not listed on /sources"
+echo "PASS /sources lists the demo add-on (entry point)"
+
+wait_run() { # wait_run <run_id> [seconds]: wait until the run ended and its files are ingested
+    local body=""
+    for _ in $(seq 1 "${2:-120}"); do
+        body=$(curl -fsS "$BASE/api/jobs/$1") || fail "GET /api/jobs/$1"
+        if [[ $(json_get "$body" 'd["status"] not in ("queued", "running") and d["stats"]["pending"] == 0') == True ]]; then
+            echo "$body"
+            return
+        fi
+        sleep 1
+    done
+    fail "run $1 did not finish: $body"
+}
+
+seed=$(date +%s)
+smoke_folder=$(json_get "$(post_json /api/folders "{\"name\": \"Crawled $run_tag\"}")" 'd["id"]')
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/sources/new?addon=demo" \
+    -F "name=Demo $run_tag" -F "enabled=on" -F "default_folder_id=$smoke_folder" \
+    -F "default_tags=Smoke Source" -F "cfg.count=10" -F "cfg.seed=$seed" \
+    -F $'cfg.tags=Sunset\nbeach' -F "max_runtime_minutes=10")
+[[ "$code" == 303 ]] || fail "create demo source through the form returned $code"
+demo_id=$(json_get "$(curl -fsS "$BASE/api/sources")" \
+    "[s['id'] for s in d['sources'] if s['name'] == 'Demo $run_tag'][0]")
+location=$(curl -s -o /dev/null -w '%{redirect_url}' -X POST "$BASE/sources/$demo_id/run")
+run1=${location##*/}
+[[ "$run1" =~ ^[0-9]+$ ]] || fail "Run now redirected to '$location'"
+run=$(wait_run "$run1")
+[[ $(json_get "$run" '(d["status"], d["stats"]["emitted"], d["stats"]["new"])') == "('succeeded', 10, 10)" ]] ||
+    fail "first demo run: $run"
+pending=$(sql "SELECT count(*) FROM files f JOIN file_sources s ON s.file_id = f.id WHERE s.job_run_id = $run1 AND s.source_id = $demo_id AND f.status = 'pending_review'")
+[[ "$pending" == 10 ]] || fail "$pending files of run $run1 in the review queue"
+crawled_file=$(sql "SELECT file_id FROM file_sources WHERE job_run_id = $run1 ORDER BY id LIMIT 1")
+state=$(tag_state "$crawled_file")
+[[ "$state" == "active=beach:crawler,smoke_source:crawler,sunset:crawler removed=" ]] ||
+    fail "tags of crawled file $crawled_file: $state"
+in_queue=$(curl -fsS "$BASE/api/review/queue?source_key=demo&limit=500" | python3 -c '
+import json, sys
+items = [i for i in json.load(sys.stdin)["items"] if i["id"] == int(sys.argv[1])]
+print(items[0]["default_folder_id"] if items else "missing")' "$crawled_file")
+[[ "$in_queue" == "$smoke_folder" ]] || fail "review queue default folder of $crawled_file: $in_queue"
+grep -q "emitted 10 images" <<<"$(curl -fsS "$BASE/jobs/$run1")" || fail "job page log tail of run $run1"
+echo "PASS demo source (count 10) Run now: run $run1 $(json_get "$run" 'd["stats"]'); 10 files pending review with $state; archive panel default folder $smoke_folder"
+
+total_before=$(files_total)
+run2=$(json_get "$(post_json "/api/sources/$demo_id/run" '{}')" 'd["run_id"]')
+run=$(wait_run "$run2")
+[[ $(json_get "$run" '(d["status"], d["stats"]["skipped_known_remote"], d["stats"]["new"])') == "('succeeded', 10, 0)" ]] ||
+    fail "second demo run: $run"
+[[ $(files_total) == "$total_before" ]] || fail "the second run added files"
+row=$(curl -fsS "$BASE/jobs?source_id=$demo_id" | python3 -c '
+import sys
+html, marker = sys.stdin.read(), f"data-run-id=\"{sys.argv[1]}\""
+start = html.find(marker)
+print(html[start : html.index("</tr>", start)] if start >= 0 else "")' "$run2")
+grep -q 'data-stat="skipped_known_remote">10<' <<<"$row" || fail "jobs page does not show 10 skipped: $row"
+echo "PASS second run $run2 adds nothing: $(json_get "$run" 'd["stats"]')"
+
+# Scheduled every minute: wait for two runs, check they are about a minute apart and never overlap.
+sched_id=$(json_get "$(post_json /api/sources "{\"name\": \"Every minute $run_tag\", \"addon_key\": \"demo\",
+    \"schedule\": \"* * * * *\", \"config\": {\"count\": 2, \"seed\": $((seed + 1)), \"delay_seconds\": 1}}")" 'd["id"]')
+runs=""
+for _ in $(seq 1 200); do
+    runs=$(curl -fsS "$BASE/api/jobs?source_id=$sched_id")
+    [[ $(json_get "$runs" 'sum(r["status"] == "succeeded" for r in d["runs"])') -ge 2 ]] && break
+    sleep 1
+done
+patch_json "/api/sources/$sched_id" '{"enabled": false}' >/dev/null
+check=$(python3 -c '
+import json, sys
+from datetime import datetime
+runs = sorted(json.loads(sys.argv[1])["runs"], key=lambda r: r["id"])
+done = [r for r in runs if r["status"] == "succeeded"]
+if len(done) < 2:
+    print("fewer than two runs:", [(r["id"], r["status"]) for r in runs]); sys.exit()
+t = lambda s: datetime.fromisoformat(s)
+gap = (t(done[1]["queued_at"]) - t(done[0]["queued_at"])).total_seconds()
+overlap = any(t(b["started_at"]) < t(a["finished_at"]) for a, b in zip(done, done[1:]))
+print(f"ok gap={gap:.0f}s" if 45 <= gap <= 75 and not overlap else f"bad gap={gap:.0f}s overlap={overlap}")' "$runs")
+[[ "$check" == ok* ]] || fail "scheduled runs: $check"
+echo "PASS source scheduled every minute: runs $(json_get "$runs" '[r["id"] for r in sorted(d["runs"], key=lambda r: r["id"])][:2]') queued $check apart, no overlap"
+
+long_id=$(json_get "$(post_json /api/sources "{\"name\": \"Long $run_tag\", \"addon_key\": \"demo\",
+    \"config\": {\"count\": 1000, \"seed\": $((seed + 2)), \"delay_seconds\": 1}}")" 'd["id"]')
+long_run=$(json_get "$(post_json "/api/sources/$long_id/run" '{}')" 'd["run_id"]')
+for _ in $(seq 1 60); do
+    [[ $(json_get "$(curl -fsS "$BASE/api/jobs/$long_run")" 'd["status"]') == running ]] && break
+    sleep 0.5
+done
+sleep 2
+start=$(date +%s.%N)
+post_json "/api/jobs/$long_run/cancel" '{}' >/dev/null
+status=""
+for _ in $(seq 1 100); do
+    status=$(json_get "$(curl -fsS "$BASE/api/jobs/$long_run")" 'd["status"]')
+    [[ "$status" == cancelled ]] && break
+    sleep 0.1
+done
+elapsed=$(python3 -c "import sys; print(f'{float(sys.argv[2]) - float(sys.argv[1]):.1f}')" "$start" "$(date +%s.%N)")
+[[ "$status" == cancelled ]] || fail "long run $long_run is $status after cancel"
+python3 -c "import sys; sys.exit(float(sys.argv[1]) > 5)" "$elapsed" || fail "cancel took ${elapsed}s"
+emitted=$(json_get "$(curl -fsS "$BASE/api/jobs/$long_run")" 'd["stats"]["emitted"]')
+[[ "$emitted" -lt 1000 ]] || fail "long run emitted everything"
+in_app test ! -e "$data_dir/work/$long_run" || fail "work dir of run $long_run left behind"
+echo "PASS cancelling long run $long_run: cancelled ${elapsed}s after the request (emitted $emitted of 1000), work dir removed"
+
 echo "All smoke checks passed."

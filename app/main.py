@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api import router as api_router
 from app.api.health import router as health_router
 from app.config import Settings, get_settings
+from app.crawl.registry import get_registry
 from app.db.engine import create_engine, create_sessionmaker
 from app.jobs import open_jobs
 from app.web import STATIC_DIR
@@ -15,6 +16,7 @@ from app.web.library import router as library_router
 from app.web.media import router as media_router
 from app.web.pages import router as pages_router
 from app.web.review import router as review_router
+from app.web.sources import router as sources_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -25,6 +27,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_engine(settings.database_url)
         app.state.engine = engine
         app.state.sessionmaker = create_sessionmaker(engine)
+        if getattr(app.state, "registry", None) is None:
+            app.state.registry = get_registry()  # add-on discovery at web startup
         try:
             async with open_jobs(settings.database_url):
                 yield
@@ -39,6 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(media_router)
     app.include_router(review_router)
     app.include_router(library_router)
+    app.include_router(sources_router)
     app.include_router(pages_router)
     return app
 

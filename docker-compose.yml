@@ -46,7 +46,7 @@ services:
 
   worker:
     <<: *app
-    command: ["procrastinate", "--app=app.jobs.app.job_app", "--log-level=info", "worker"]
+    command: ["procrastinate", "--app=app.jobs.app.job_app", "--log-level=info", "worker", "--concurrency=4"]
 
 volumes:
   pgdata:

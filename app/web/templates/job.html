@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Run #{{ run.id }}{% endblock %}
+{% block content %}
+<h1>Run #{{ run.id }}</h1>
+<p><a href="/jobs">All runs</a>{% if run.source_id %} · <a href="/sources/{{ run.source_id }}/edit">{{ view.source_name }}</a> · <a href="/jobs?source_id={{ run.source_id }}">its runs</a>{% endif %}</p>
+{% if notice %}<p class="notice" id="notice">{{ {"already-active": "This source already has a queued or running run (this one).", "cancel-requested": "Cancel requested.", "not-active": "The run had already finished."}.get(notice, "") }}</p>{% endif %}
+{% include "fragments/job_live.html" %}
+<script type="module" src="{{ url_for('static', path='js/sources.js') }}"></script>
+{% endblock %}
+{% block shortcuts %}
+<dt><kbd>Esc</kbd></dt><dd>Back to the runs</dd>
+{% endblock %}

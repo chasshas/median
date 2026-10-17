@@ -1,5 +1,6 @@
 // The review page's archive panel (A / Shift+A): pick a folder (searchable tree, 5 recent
-// folders, last used folder preselected, inline "new subfolder"), drop crawler tags of a single
+// folders, last used folder preselected unless the files' crawl source has a default folder,
+// inline "new subfolder"), drop crawler tags of a single
 // file, add user tags with autocomplete, optionally keep those user tags for the next files.
 // openArchivePanel(items) resolves to {folder_id, folder_path, add_tags, remove_tags_per_file}
 // on Enter / Archive, or null on Esc / Cancel.
@@ -314,6 +315,12 @@ dialog.addEventListener("cancel", (event) => {
 });
 attachAutocomplete(tagInput);
 
+// The crawl source's default folder, when every item came with the same one.
+export function suggestedFolder(items) {
+  const ids = new Set(items.map((item) => item.default_folder_id ?? null));
+  return ids.size === 1 ? [...ids][0] : null;
+}
+
 export async function openArchivePanel(items) {
   if (!items.length || panel.resolve) return null;
   currentItems = items;
@@ -332,11 +339,12 @@ export async function openArchivePanel(items) {
   const promise = new Promise((resolve) => {
     panel.resolve = resolve;
   });
+  const sourceFolder = suggestedFolder(items);
   dialog.showModal();
   search.focus();
   try {
     const [, tags] = await Promise.all([
-      loadFolders(),
+      loadFolders(sourceFolder),
       single ? api("GET", `/api/files/${items[0].id}/tags`) : Promise.resolve(null),
     ]);
     if (tags && tags.ok) {
