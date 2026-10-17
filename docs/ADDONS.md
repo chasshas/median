@@ -34,7 +34,7 @@ class Config(BaseModel):
 
 
 class Example(Addon):
-    key = "example"            # 1-50 of a-z, 0-9, _ ; stored as file_sources.source_key
+    key = "example"  # 1-50 of a-z, 0-9, _ ; stored as file_sources.source_key
     name = "Example site"
     version = "1.0"
     description = "Downloads the newest posts of a feed."
@@ -49,10 +49,16 @@ class Example(Addon):
                 continue
             path = ctx.work_dir / post.filename
             path.write_bytes(post.data)
-            await ctx.emit(CrawledItem(
-                path=path, remote_id=post.id, url=post.url, title=post.title,
-                tags=post.tags, metadata={"author": post.author},
-            ))
+            await ctx.emit(
+                CrawledItem(
+                    path=path,
+                    remote_id=post.id,
+                    url=post.url,
+                    title=post.title,
+                    tags=post.tags,
+                    metadata={"author": post.author},
+                )
+            )
 
 
 ADDON = Example  # only needed for single-file add-ons
