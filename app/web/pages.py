@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import database_ok, get_session
 from app.db.models_files import FileStatus
+from app.dedup.views import similar_badges, similar_files
 from app.ingest.views import file_detail, files_with_status, status_counts
 from app.jobs import job_counts
 from app.web import templates
@@ -63,10 +64,12 @@ async def review_page(
     request: Request, session: Annotated[AsyncSession, Depends(get_session)]
 ) -> HTMLResponse:
     """Temporary grid of pending files; phase 3 replaces it with the review flow."""
+    pending = await files_with_status(session, FileStatus.pending_review, REVIEW_GRID_LIMIT)
     return render(
         request,
         "review.html",
-        pending=await files_with_status(session, FileStatus.pending_review, REVIEW_GRID_LIMIT),
+        pending=pending,
+        badges=await similar_badges(session, [f.id for f in pending]),
         processing=await files_with_status(session, FileStatus.processing, REVIEW_GRID_LIMIT),
         errors=await files_with_status(session, FileStatus.error, REVIEW_GRID_LIMIT),
         counts=await status_counts(session),
@@ -95,4 +98,10 @@ async def file_page(
     detail = await file_detail(session, file_id)
     if detail is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
-    return render(request, "file.html", detail=detail, file=detail.file)
+    return render(
+        request,
+        "file.html",
+        detail=detail,
+        file=detail.file,
+        similar=await similar_files(session, file_id),
+    )

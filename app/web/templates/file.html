@@ -48,6 +48,31 @@
     </ul>
     {% else %}<p class="muted">No tags.</p>{% endif %}
   </section>
+  <section class="card" id="similar">
+    <h2>Similar files</h2>
+    {% if similar %}
+    <ul class="similar-list" id="similar-files">
+      {% for s in similar %}
+      <li class="similar-item{% if s.dismissed %} dismissed{% endif %}" data-other-id="{{ s.other_id }}">
+        <a href="/files/{{ s.other_id }}" class="similar-thumb">
+          {% if s.thumb_url %}<img src="{{ s.thumb_url }}" alt="{{ s.original_filename or '' }}" loading="lazy" width="96" height="96">
+          {% else %}<span class="no-thumb">{{ s.media_kind }}</span>{% endif %}
+        </a>
+        <div class="similar-info">
+          <a href="/files/{{ s.other_id }}">{{ s.original_filename or ("file " ~ s.other_id) }}</a>
+          <span class="status status-{{ s.status }}">{{ s.status | replace("_", " ") }}</span>
+          <span class="muted">{{ "image pHash" if s.method == "image_phash" else "video frames" }}, distance {{ s.distance }}</span>
+          {% if s.dismissed %}<span class="muted">dismissed</span>
+          {% else %}
+          <button type="button" class="dismiss" hx-post="/api/similar/{{ file.id }}/{{ s.other_id }}/{{ s.method }}/dismiss" hx-swap="none"
+            hx-on::after-request="if (event.detail.successful) { this.closest('li').classList.add('dismissed'); this.replaceWith('dismissed'); } else { this.textContent = 'Failed'; }">Dismiss</button>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">No similar files.</p>{% endif %}
+  </section>
   <section class="card">
     <h2>Sources</h2>
     <ul id="file-sources">

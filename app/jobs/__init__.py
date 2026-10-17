@@ -49,6 +49,18 @@ async def defer_retry_file(file_id: int) -> int:
     return await retry_file.defer_async(file_id=file_id)
 
 
+async def defer_rehash(*, missing_only: bool = False) -> int:
+    from app.jobs.tasks import rehash
+
+    return await rehash.defer_async(missing_only=missing_only)
+
+
+async def defer_recompute_similar() -> int:
+    from app.jobs.tasks import recompute_similar
+
+    return await recompute_similar.defer_async()
+
+
 async def job_counts(session: AsyncSession) -> dict[str, int]:
     """Number of jobs per status (todo, doing, succeeded, failed, ...); empty before migrate."""
     exists = await session.scalar(text("SELECT to_regclass('public.procrastinate_jobs')"))

@@ -25,6 +25,8 @@ Open http://localhost:8000. `make logs` follows the logs and `make down` stops t
 
 To import an existing collection, put it in `./imports` (or set `IMPORTS_DIR`) and run `docker compose exec web python -m app.cli import /imports --recursive [--tags a,b] [--force]`. Files are copied; the originals stay where they are.
 
+Perceptual duplicates: `python -m app.cli rehash [--missing-only]` recomputes image and video hashes from the originals and rebuilds their similar pairs; `python -m app.cli recompute-similar` rebuilds all pairs from stored hashes with the current thresholds (dismissed pairs stay dismissed). Run them with `docker compose exec web ...`.
+
 Media and state live in the `media-data` volume (mounted at `DATA_DIR`, default `/data`), and the database lives in `pgdata`. `docker-compose.override.yml` is for development: it bind-mounts the source and reloads on changes. For a deployment, leave it out: `docker compose -f docker-compose.yml up -d`.
 
 ## Phases

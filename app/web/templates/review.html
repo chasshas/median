@@ -31,6 +31,21 @@
       {% endif %}
       <span class="tile-name">{{ f.original_filename or ("file " ~ f.id) }}</span>
     </a>
+    {% set badge = badges.get(f.id) %}
+    {% if badge and (badge.kept or badge.discarded) %}
+    <div class="badges">
+      {% if badge.kept %}
+      <a class="badge badge-similar" data-similar-kind="kept"
+        href="{% if badge.kept | length == 1 %}/files/{{ badge.kept[0] }}{% else %}/files/{{ f.id }}#similar{% endif %}"
+        title="Visually similar to {{ badge.kept | length }} archived or pending file(s)">similar to archived or pending ({{ badge.kept | length }})</a>
+      {% endif %}
+      {% if badge.discarded %}
+      <a class="badge badge-discarded" data-similar-kind="discarded"
+        href="{% if badge.discarded | length == 1 %}/files/{{ badge.discarded[0] }}{% else %}/files/{{ f.id }}#similar{% endif %}"
+        title="Visually similar to {{ badge.discarded | length }} discarded file(s)">similar to discarded ({{ badge.discarded | length }})</a>
+      {% endif %}
+    </div>
+    {% endif %}
   </li>
   {% endfor %}
 </ul>

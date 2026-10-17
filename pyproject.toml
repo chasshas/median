@@ -37,12 +37,15 @@ ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S"]
-# Dev scripts run ffmpeg with fixed argument lists.
-"scripts/**" = ["S603", "S607"]
+# Dev scripts run ffmpeg with fixed argument lists and draw random (non-secret) test media.
+"scripts/**" = ["S311", "S603", "S607"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-p no:cacheprovider"
-markers = ["network: needs real network access (skipped by default; run with -m network)"]
+markers = [
+    "network: needs real network access (skipped by default; run with -m network)",
+    "slow: slow tests (deselect with -m \"not slow\")",
+]

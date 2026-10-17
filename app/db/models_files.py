@@ -90,6 +90,11 @@ class File(Base):
         Index("ix_files_collected_at", "collected_at"),
         Index("ix_files_archived_at", "archived_at"),
         Index("ix_files_media_kind", "media_kind"),
+        Index(
+            "ix_files_video_duration",
+            "duration_ms",
+            postgresql_where=text("media_kind = 'video'"),
+        ),
     )
 
     @property

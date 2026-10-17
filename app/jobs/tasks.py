@@ -43,3 +43,23 @@ async def retry_file(file_id: int) -> str:
     async with job_sessionmaker(get_settings().database_url) as sessionmaker:
         outcome = await process.retry_file(sessionmaker, get_paths(), file_id)
     return outcome.value
+
+
+@job_app.task(name="rehash", queue="maintenance")
+async def rehash(missing_only: bool = False) -> dict[str, object]:
+    from app.dedup import service
+
+    async with job_sessionmaker(get_settings().database_url) as sessionmaker:
+        stats = await service.rehash(sessionmaker, get_paths(), missing_only=missing_only)
+    logger.info("rehash finished: %s", stats.as_dict())
+    return stats.as_dict()
+
+
+@job_app.task(name="recompute_similar", queue="maintenance")
+async def recompute_similar() -> dict[str, int]:
+    from app.dedup import service
+
+    async with job_sessionmaker(get_settings().database_url) as sessionmaker:
+        stats = await service.recompute_similar(sessionmaker)
+    logger.info("recompute_similar finished: %s", stats.as_dict())
+    return stats.as_dict()

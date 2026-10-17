@@ -2,7 +2,7 @@
 # Acceptance smoke test against a running stack (after make up).
 # Usage: scripts/smoke.sh [base_url]. COMPOSE selects the compose command (default "docker compose").
 # SMOKE_LOCAL=1 runs app commands on this machine instead of in the web container (cloud sessions);
-# then SMOKE_WORKER_LOG names the worker's log file.
+# then SMOKE_WORKER_LOG names the worker's log file and SQL runs through psql "$DATABASE_URL".
 # Each phase appends the checks for its acceptance criteria.
 set -euo pipefail
 
@@ -26,6 +26,16 @@ worker_log() {
         cat "${SMOKE_WORKER_LOG:?set SMOKE_WORKER_LOG with SMOKE_LOCAL=1}"
     else
         "${compose[@]}" logs --no-color worker 2>/dev/null
+    fi
+}
+
+# Run SQL on the app database (db container, or DATABASE_URL with SMOKE_LOCAL=1).
+sql() {
+    if [[ "$LOCAL" == 1 ]]; then
+        psql "${DATABASE_URL:?set DATABASE_URL with SMOKE_LOCAL=1}" -v ON_ERROR_STOP=1 -qAt -c "$1"
+    else
+        "${compose[@]}" exec -T db sh -c \
+            'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -qAt -c "$1"' sh "$1"
     fi
 }
 
@@ -160,5 +170,61 @@ kinds=$(for id in $(json_get "$status3" '" ".join(str(f["file_id"]) for f in d["
     curl -fsS "$BASE/files/$id" | sed -nE 's/.*<dt>Type<\/dt><dd>([a-z]+) .*/\1/p'
 done | sort | uniq -c | tr -s ' ' | paste -sd, -)
 echo "PASS app.cli import: $expected files queued, $expected new (kinds:$kinds)"
+
+# Phase 2: perceptual duplicates, review badges, discarded matches, rehash and recompute.
+upload_one() { # upload_one <file>: upload, wait, print the batch JSON
+    local reply
+    reply=$(curl -fsS -F "files=@$1" "$BASE/api/uploads") || fail "POST /api/uploads $1"
+    wait_batch "$(json_get "$reply" 'd["batch_id"]')"
+}
+
+review_tile() { # review_tile <file_id>: the /review grid tile of one file
+    curl -fsS "$BASE/review" | python3 -c '
+import sys
+html, marker = sys.stdin.read(), f"data-file-id=\"{sys.argv[1]}\""
+start = html.find(marker)
+print(html[start : html.index("</li>", start)] if start >= 0 else "")' "$1"
+}
+
+similar=$media/similar
+status=$(upload_one "$similar/original.png")
+[[ $(json_get "$status" 'd["counts"]["new"]') == 1 ]] || fail "original upload: $status"
+first_id=$(json_get "$status" 'd["files"][0]["file_id"]')
+status=$(upload_one "$similar/half.png")
+[[ $(json_get "$status" 'd["counts"]["new"]') == 1 ]] || fail "resized upload: $status"
+half_id=$(json_get "$status" 'd["files"][0]["file_id"]')
+tile=$(review_tile "$half_id")
+grep -q "similar to archived or pending (1)" <<<"$tile" || fail "no similar badge on $half_id: $tile"
+grep -q "href=\"/files/$first_id\"" <<<"$tile" || fail "badge of $half_id does not link to $first_id"
+similar_json=$(curl -fsS "$BASE/api/files/$half_id/similar") || fail "GET similar of $half_id"
+[[ $(json_get "$similar_json" '[s["file_id"] for s in d["similar"]]') == "[$first_id]" ]] ||
+    fail "similar of $half_id: $similar_json"
+echo "PASS 50 percent copy $half_id shows 'similar to archived or pending (1)' linking to /files/$first_id; API: $(json_get "$similar_json" 'd["similar"][0]')"
+
+sql "UPDATE files SET status = 'discarded', discarded_at = now() WHERE id = $first_id" ||
+    fail "discard $first_id"
+status=$(upload_one "$similar/reencoded.jpg")
+[[ $(json_get "$status" 'd["counts"]["new"]') == 1 ]] || fail "re-encoded upload: $status"
+again_id=$(json_get "$status" 'd["files"][0]["file_id"]')
+tile=$(review_tile "$again_id")
+grep -q 'class="badge badge-discarded"' <<<"$tile" || fail "no discarded badge on $again_id: $tile"
+grep -q "similar to discarded (1)" <<<"$tile" || fail "discarded badge text on $again_id: $tile"
+grep -q "href=\"/files/$first_id\"" <<<"$tile" || fail "discarded badge does not link to $first_id"
+grep -q "Similar files" <<<"$(curl -fsS "$BASE/files/$again_id")" || fail "file page section"
+echo "PASS after discarding $first_id (psql), re-encoded copy $again_id shows 'similar to discarded (1)'"
+
+copy_args=(-F "files=@$similar/original.png" -F "files=@$similar/half.png" -F "files=@$similar/reencoded.jpg")
+reply=$(curl -fsS "${copy_args[@]}" "$BASE/api/uploads") || fail "POST exact copies"
+status=$(wait_batch "$(json_get "$reply" 'd["batch_id"]')")
+[[ $(json_get "$status" 'd["counts"]["duplicate_exact"]') == 3 ]] || fail "exact copies: $status"
+[[ $(json_get "$status" 'd["counts"]["new"]') == 0 ]] || fail "exact copies: $status"
+echo "PASS exact copies of all three: 3 duplicate_exact, 0 new"
+
+rehash_out=$(in_app python -m app.cli rehash --missing-only) || fail "rehash --missing-only: $rehash_out"
+grep -q "errors 0" <<<"$rehash_out" || fail "rehash: $rehash_out"
+recompute_out=$(in_app python -m app.cli recompute-similar) || fail "recompute-similar: $recompute_out"
+pairs_now=$(sql "SELECT count(*) FROM similar_pairs WHERE $first_id IN (file_a_id, file_b_id)")
+[[ "$pairs_now" == 2 ]] || fail "pairs of $first_id after recompute: $pairs_now"
+echo "PASS $rehash_out; $recompute_out"
 
 echo "All smoke checks passed."

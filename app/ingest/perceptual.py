@@ -1,11 +1,12 @@
-"""Perceptual hashing hook. Phase 2 fills it in (pHash for images, frame hashes for videos)."""
+"""Perceptual hashing hook called by process_ingest; the work lives in app.dedup."""
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models_files import File
+from app.dedup import service
 from app.storage import DataPaths
 
 
 async def compute_perceptual(session: AsyncSession, paths: DataPaths, file: File) -> None:
-    """Compute and store perceptual hashes for file. Does nothing until phase 2."""
-    return None
+    """Compute perceptual hashes for file and record files similar to it (any status)."""
+    await service.compute_perceptual(session, paths, file)

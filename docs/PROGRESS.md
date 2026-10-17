@@ -46,3 +46,27 @@ Known gaps:
 - No perceptual hashes or similar-file flags yet (phase 2); no archive/discard flow (phase 3), so trash and archive paths are only exercised by tests.
 - A file whose processing job is lost (worker killed mid-job) stays in status processing; there is no sweeper yet.
 - An ingest that fails before a files row exists (for example an unreadable staging file) records an error event only; the UI cannot retry it.
+
+## Phase 2 - 2026-10-17 - Duplicate detection
+Built:
+- Migration 0003: enum similar_method; tables video_frame_hashes (file_id, frame_index 0-4, phash) and similar_pairs (file_a_id < file_b_id check, method, distance, dismissed, created_at); index on similar_pairs(file_b_id); partial index on files(duration_ms) for videos. Models in app/db/models_dedup.py.
+- app/dedup/hashing.py: ImageHash pHash (hash_size 8) of the EXIF-transposed RGB first frame; to_signed/to_unsigned for bigint storage; video frame hashes at 10/30/50/70/90 percent via ffmpeg (seek before input, one PNG frame piped into Pillow); clips under 1 s hash one frame (frame_index 0).
+- app/dedup/index.py: SimilarityIndex protocol and BruteForceIndex over numpy uint64 arrays (numpy.bitwise_count popcount); query(hash, threshold, exclude_id) returns (file_id, distance), nearest first.
+- app/dedup/service.py: compute_perceptual (the phase 1 hook now delegates to it) hashes, matches against files in every status and inserts pairs without touching existing ones; video candidates selected in SQL by the duration rule, then frame-by-frame comparison (3 of 5, median distance); rehash and recompute_similar keep dismissed flags of pairs that still match. app/dedup/settings.py: get_dedup_settings().
+- CLI: python -m app.cli rehash [--missing-only], python -m app.cli recompute-similar. Procrastinate tasks rehash and recompute_similar (queue maintenance).
+- API: GET /api/files/<id>/similar, POST /api/similar/<a>/<b>/<method>/dismiss. /files/<id> has a "Similar files" section (thumbnails, status labels, distance, Dismiss). The temporary /review grid shows "similar to archived or pending (n)" and a red dashed "similar to discarded (n)" badge.
+- Tests: 117 in total (30 new): signed conversion and popcount against pure-Python references (random values, high bit), hash bits vs ImageHash hex, EXIF transpose, animation first frame, resized/JPEG q60/WebP variants similar, 5 unrelated structured images not similar, testsrc2 re-encode similar, testsrc2 vs mandelbrot not, 12 s vs 4 s video never a candidate, short clips, discarded variant flagged, exact copy still duplicate_exact, dismissed pairs kept through retry (ingest), rehash and recompute-similar, threshold changes, missing originals, hashing failures, API, badges, file page, CLI and tasks, 100,000-hash query under 1 s (marked slow; deselect with -m "not slow"). Test media are generated (seeded shapes, gradients and text; lavfi testsrc2 and mandelbrot).
+- scripts/smoke.sh phase 2 checks: 50 percent copy gets a badge linking to the original, discarding the original via psql then uploading a JPEG q60 copy gets "similar to discarded (1)", exact copies are duplicate_exact, rehash --missing-only and recompute-similar succeed.
+
+Verify:
+- `make up`, upload an image at /upload, then a copy resized to 50 percent: /review shows "similar to archived or pending (1)" on the copy, linking to the first file; /files/<copy> lists it under "Similar files".
+- `make psql`, `UPDATE files SET status = 'discarded' WHERE id = <first>;`, upload a re-encoded copy: its tile shows "similar to discarded (1)".
+- Upload an exact copy: the batch card shows duplicate exact.
+- `docker compose exec web python -m app.cli rehash --missing-only` and `docker compose exec web python -m app.cli recompute-similar`.
+- `make lint`, `make test` (`make test ARGS='-m "not slow"'` skips the timing test), `scripts/smoke.sh`.
+
+Known gaps:
+- Cloud session: Docker has no daemon here, so checks ran natively against PostgreSQL 16 (migrations, 117 tests, uvicorn + worker + full smoke.sh with SMOKE_LOCAL=1, headless Chromium screenshots of /review and /files/<id>). CI runs the image and postgres:18.
+- Ingest queries the image index by loading every stored pHash per new file (fine for single-user collections; a cached or BK-tree index can replace BruteForceIndex behind the same interface).
+- No compare view or keyboard flow yet (phase 3); a dismissed pair cannot be undismissed.
+- rehash/recompute-similar have no UI trigger and no job_runs record until phases 5 and 8.

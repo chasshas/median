@@ -11,13 +11,13 @@ def test_migrate_is_idempotent(migrated_db: str, db_conn: psycopg.Connection) ->
 
     assert ensure_job_schema(migrated_db) is False
     version = db_conn.execute("SELECT version_num FROM alembic_version").fetchone()
-    assert version == ("0002",)
+    assert version == ("0003",)
     jobs_table = db_conn.execute("SELECT to_regclass('public.procrastinate_jobs')").fetchone()
     assert jobs_table is not None
     assert jobs_table[0] is not None
 
 
-def test_phase1_schema(db_conn: psycopg.Connection) -> None:
+def test_schema(db_conn: psycopg.Connection) -> None:
     tables = {
         r[0]
         for r in db_conn.execute(
@@ -25,7 +25,8 @@ def test_phase1_schema(db_conn: psycopg.Connection) -> None:
         ).fetchall()
     }
     assert {"files", "file_sources", "ingest_events", "folders", "tags", "file_tags"} <= tables
-    assert not tables & {"similar_pairs", "video_frame_hashes", "crawl_sources", "job_runs"}
+    assert {"similar_pairs", "video_frame_hashes"} <= tables
+    assert not tables & {"crawl_sources", "job_runs"}
     enums = dict(
         db_conn.execute(
             "SELECT t.typname, array_agg(e.enumlabel::text ORDER BY e.enumsortorder)"
@@ -41,6 +42,7 @@ def test_phase1_schema(db_conn: psycopg.Connection) -> None:
         "error",
     ]
     assert enums["tag_origin"] == ["crawler", "user"]
+    assert enums["similar_method"] == ["image_phash", "video_frames"]
     inbox = db_conn.execute("SELECT parent_id FROM folders WHERE name = 'Inbox'").fetchall()
     assert inbox == [(None,)]
     fks = db_conn.execute(
