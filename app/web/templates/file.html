@@ -1,8 +1,15 @@
 {% extends "base.html" %}
 {% block title %}{{ file.title or file.original_filename or ("File " ~ file.id) }}{% endblock %}
 {% block content %}
+{% if file_nav %}
+<nav class="file-nav" aria-label="Library" data-prev-url="{{ ('/files/' ~ file_nav.prev_id ~ '?' ~ file_query) if file_nav.prev_id else '' }}" data-next-url="{{ ('/files/' ~ file_nav.next_id ~ '?' ~ file_query) if file_nav.next_id else '' }}">
+  {% if file_nav.prev_id %}<a href="/files/{{ file_nav.prev_id }}?{{ file_query }}" rel="prev" id="file-prev">&larr; Previous</a>{% else %}<span class="muted">&larr; Previous</span>{% endif %}
+  <a href="{{ back_url }}">{{ file_nav.position }} of {{ file_nav.total }} in the library</a>
+  {% if file_nav.next_id %}<a href="/files/{{ file_nav.next_id }}?{{ file_query }}" rel="next" id="file-next">Next &rarr;</a>{% else %}<span class="muted">Next &rarr;</span>{% endif %}
+</nav>
+{% endif %}
 <h1>{{ file.title or file.original_filename or ("File " ~ file.id) }}</h1>
-<div class="file-page">
+<div class="file-page" id="file-page" data-file-id="{{ file.id }}">
   <figure class="viewer">
     {% set src = "/media/" ~ file.id ~ "/original" %}
     {% if file.media_kind.value == "image" %}
@@ -26,7 +33,7 @@
       {% if file.width %}<dt>Dimensions</dt><dd>{{ file.width }} &times; {{ file.height }}</dd>{% endif %}
       {% if file.duration_ms %}<dt>Duration</dt><dd>{{ file.duration_ms | duration }}</dd>{% endif %}
       <dt>Original name</dt><dd>{{ file.original_filename or "" }}</dd>
-      {% if file.description %}<dt>Description</dt><dd>{{ file.description }}</dd>{% endif %}
+      {% if folder_path %}<dt>Folder</dt><dd id="file-folder">{{ folder_path }}</dd>{% endif %}
       <dt>Collected</dt><dd>{{ file.collected_at | localtime }}</dd>
       {% if file.archived_at %}<dt>Archived</dt><dd>{{ file.archived_at | localtime }}</dd>{% endif %}
       {% if file.discarded_at %}<dt>Discarded</dt><dd>{{ file.discarded_at | localtime }}</dd>{% endif %}
@@ -41,12 +48,23 @@
     {% endif %}
   </section>
   <section class="card">
+    <h2>Title and description</h2>
+    <form class="details-form" data-file-details>
+      <label>Title <input type="text" name="title" value="{{ file.title or '' }}" maxlength="500" placeholder="{{ file.original_filename or '' }}"></label>
+      <label>Description <textarea name="description" rows="3" maxlength="20000">{{ file.description or "" }}</textarea></label>
+      {% if folders %}
+      <label>Folder
+        <select name="folder_id">
+          {% for folder in folders %}<option value="{{ folder.id }}"{% if folder.id == file.folder_id %} selected{% endif %}>{{ folder.path }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <div class="actions"><button type="submit">Save</button> <span class="muted" data-details-status aria-live="polite"></span></div>
+    </form>
+  </section>
+  <section class="card">
     <h2>Tags</h2>
-    {% if detail.tags %}
-    <ul class="tags" id="file-tags">
-      {% for tag in detail.tags %}<li class="tag tag-{{ tag.origin }}" title="{{ tag.origin }}">{{ tag.name }}</li>{% endfor %}
-    </ul>
-    {% else %}<p class="muted">No tags.</p>{% endif %}
+    {% with file_id = file.id %}{% include "fragments/file_tags.html" %}{% endwith %}
   </section>
   <section class="card" id="similar">
     <h2>Similar files</h2>
@@ -84,4 +102,11 @@
     </ul>
   </section>
 </div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script type="module" src="{{ url_for('static', path='js/file.js') }}"></script>
+{% endblock %}
+{% block shortcuts %}
+{% if file_nav %}<dt><kbd>J</kbd> / <kbd>K</kbd></dt><dd>Next / previous file in the library</dd>{% endif %}
+<dt><kbd>T</kbd></dt><dd>Add a tag</dd>
+<dt><kbd>E</kbd></dt><dd>Edit the title</dd>
 {% endblock %}

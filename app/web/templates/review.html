@@ -73,12 +73,7 @@
       <button type="button" data-mode="single" aria-pressed="true">Single</button>
       <button type="button" data-mode="grid" aria-pressed="false">Grid</button>
     </div>
-    <label>Archive into
-      <select id="archive-folder">
-        {% for folder in folders %}<option value="{{ folder.id }}">{{ folder.path }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>Tags <input type="text" id="archive-tags" placeholder="comma separated" size="24"></label>
+    <span class="last-folder" title="Compare decisions archive here; A opens the archive panel">Last folder: <strong id="last-folder" data-inbox-path="Inbox">Inbox</strong></span>
     <dl class="counters">
       <dt>Remaining</dt><dd id="remaining">…</dd>
       <dt>Decided this session</dt><dd id="decided">0</dd>
@@ -91,18 +86,54 @@
   </div>
   <div id="toasts" class="toasts" aria-live="polite"></div>
 </section>
+<dialog id="archive-panel" class="archive-panel" aria-labelledby="archive-panel-title">
+  <form id="archive-form">
+    <h2 id="archive-panel-title">Archive</h2>
+    <p class="muted" id="archive-panel-subject"></p>
+    <div class="panel-columns">
+      <section class="panel-folders" aria-label="Folder">
+        <h3>Folder</h3>
+        <input type="search" id="folder-search" placeholder="Search folders" autocomplete="off" aria-label="Search folders">
+        <div class="recent-folders" id="recent-folders"></div>
+        <ul class="folder-picker" id="folder-picker" role="radiogroup" aria-label="Folders"></ul>
+        <div class="inline-form">
+          <input type="text" id="new-subfolder" placeholder="New subfolder of the selected folder" autocomplete="off" maxlength="100" aria-label="New subfolder name">
+          <button type="button" id="create-subfolder">Create</button>
+        </div>
+      </section>
+      <section class="panel-tags" aria-label="Tags">
+        <h3>Tags</h3>
+        <div id="crawler-tags-block">
+          <p class="muted">Crawler tags (&times; removes one from this file)</p>
+          <ul class="tags chips" id="crawler-tags"></ul>
+        </div>
+        <p id="bulk-tags-note" class="muted" hidden>Crawler tags can be removed per file only.</p>
+        <p class="muted">Add tags</p>
+        <ul class="tags chips" id="user-tags"></ul>
+        <input type="text" id="user-tag-input" list="panel-tag-suggestions" placeholder="tag, then Enter or comma" autocomplete="off" aria-label="Add a tag">
+        <datalist id="panel-tag-suggestions"></datalist>
+        <label class="checkbox"><input type="checkbox" id="keep-user-tags"> Keep these user tags for the next files</label>
+      </section>
+    </div>
+    <div class="actions">
+      <button type="submit">Archive</button>
+      <button type="button" id="archive-cancel">Cancel</button>
+      <span class="muted"><kbd>Enter</kbd> confirms, <kbd>Esc</kbd> cancels</span>
+    </div>
+  </form>
+</dialog>
 <script type="module" src="{{ url_for('static', path='js/review.js') }}"></script>
 {% endif %}
 {% endblock %}
 {% block shortcuts %}
 <dt><kbd>J</kbd> / <kbd>→</kbd> <kbd>↓</kbd></dt><dd>Next file</dd>
 <dt><kbd>K</kbd> / <kbd>←</kbd> <kbd>↑</kbd></dt><dd>Previous file</dd>
-<dt><kbd>A</kbd></dt><dd>Archive (into the folder and with the tags in the toolbar)</dd>
+<dt><kbd>A</kbd></dt><dd>Archive: opens the archive panel (folder, tags; <kbd>Enter</kbd> confirms, <kbd>Esc</kbd> cancels)</dd>
 <dt><kbd>D</kbd></dt><dd>Discard</dd>
 <dt><kbd>S</kbd></dt><dd>Skip (no decision)</dd>
 <dt><kbd>C</kbd></dt><dd>Compare with a similar file (again: the next similar file)</dd>
 <dt><kbd>X</kbd></dt><dd>Select or unselect</dd>
-<dt><kbd>Shift</kbd>+<kbd>A</kbd> / <kbd>Shift</kbd>+<kbd>D</kbd></dt><dd>Archive / discard the selection</dd>
+<dt><kbd>Shift</kbd>+<kbd>A</kbd> / <kbd>Shift</kbd>+<kbd>D</kbd></dt><dd>Archive (panel) / discard the selection</dd>
 <dt><kbd>U</kbd></dt><dd>Undo the last decision</dd>
 <dt><kbd>G</kbd></dt><dd>Switch between single and grid view</dd>
 <dt><kbd>Enter</kbd></dt><dd>Grid: open the focused file in single view</dd>

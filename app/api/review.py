@@ -3,7 +3,7 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import get_session
@@ -21,7 +21,10 @@ FileIds = Annotated[list[int], Field(min_length=1, max_length=1000)]
 class ArchiveBody(BaseModel):
     file_ids: FileIds
     folder_id: int | None = None  # default: Inbox
-    tags: list[str] = []
+    # Added to every file with origin user; "tags" is the phase 3 name and still accepted.
+    add_tags: Annotated[list[str], Field(validation_alias=AliasChoices("add_tags", "tags"))] = []
+    # {file_id: [tag names]}: tags that file loses (removed = true) when it is archived.
+    remove_tags_per_file: dict[int, list[str]] = {}
 
 
 class FileIdsBody(BaseModel):
@@ -105,7 +108,12 @@ async def _finish(session: AsyncSession, result: service.ReviewResult) -> dict[s
 async def archive(body: ArchiveBody, session: SessionDep) -> dict[str, object]:
     try:
         result = await service.archive(
-            session, get_paths(), body.file_ids, body.folder_id, body.tags
+            session,
+            get_paths(),
+            body.file_ids,
+            body.folder_id,
+            body.add_tags,
+            body.remove_tags_per_file,
         )
     except service.ReviewError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

@@ -95,3 +95,27 @@ Known gaps:
 - Empty staging/<batch>/ directories stay after their files are decided.
 - The Pending and Failed tab counts are from page load; the "Remaining" counter is live.
 - purge_trash has no job_runs record or UI trigger until phase 5.
+
+## Phase 4 - 2026-10-17 - Classification and library
+Built:
+- No migration (phase 1 tables suffice).
+- app/library/folders.py: create, rename, move (cycles and case-insensitive sibling clashes rejected), delete (empty directly; non-empty with move_contents_to_parent, merging clashing subfolders recursively), get_tree() with direct and subtree counts of archived files, path_of, resolve_path("A/B"), subtree_ids (recursive CTE), recent_folders; the Inbox cannot be renamed, moved or deleted.
+- app/library/tags.py: list_tags with active counts, autocomplete (usage then name), rename_tag with merge, delete_tag (force when in use), add_user_tag, remove_tag, restore_tag, file_tags. app/library/classify.py: move_files (database only), bulk add/remove tags, update_details. app/library/browse.py: library grid query and prev/next neighbours.
+- review.service.archive(file_ids, folder_id, add_tags, remove_tags_per_file), undoable.
+- API: /api/folders (tree, recent, resolve, get, create, PATCH rename/move, DELETE), /api/tags (list, autocomplete, rename with 409 merge_into, delete), /api/files/<id>/tags (get, add, remove, restore), PATCH /api/files/<id>, /api/library (list, move, tags/add, tags/remove).
+- Review: A / Shift+A open the archive panel (searchable folder tree, 5 recent folders, last used folder preselected, inline subfolder, crawler tag chips for a single file, user tags with autocomplete, keep-tags toggle, Enter confirms, Esc cancels). JS in app/web/static/js/archive_panel.js and common.js.
+- Pages: /library (folder tree with counts, create/rename/move/delete, grid with include subfolders, sort, order, pagination, multi-select move, add tag, remove tag, discard), /files/<id> (title, description, folder, tag chips with origin, removed tags with restore, prev/next and J/K in the library context), /tags (counts, instant filter, rename with merge confirmation, delete). Each page lists its keys behind ?.
+- Tests: 186 in total (32 new): folder cycles, clashes, Inbox protection, delete with merge (including a subfolder named like its parent and a top-level delete into the Inbox), tree counts, recent folders; tag rename merge over every row combination, autocomplete order and escaping, delete with force, per-file add/remove/restore; removed crawler tag surviving a duplicate ingest from the same add-on through the API; archive with folder and tag edits in one call and undo; bulk archive; moving archived files leaves DATA_DIR untouched (inode, size, mtime); API and page rendering.
+- scripts/smoke.sh phase 4 checks; scripts/smoke_crawler_ingest.py.
+
+Verify:
+- `make up`, ingest files, open http://localhost:8000/review, press A, type part of a nested folder's name, click x on a crawler tag, type a tag and Enter, Enter again: /files/<id> shows the folder and tags, the removed one under "Removed tags".
+- /library: the tree shows "direct / with subfolders" counts; select 10 files, Move: the counts change on the reload. Delete a non-empty folder with "Move files and subfolders" ticked: `make psql`, `SELECT count(*) FROM files WHERE status = 'archived' AND folder_id IS NULL;` is 0.
+- /tags: rename "cats" to "cat" and confirm the merge.
+- `make lint`, `make test`, `scripts/smoke.sh`.
+
+Known gaps:
+- Cloud session: no Docker daemon, so checks ran natively against PostgreSQL 16 (migrations, 186 tests, uvicorn + worker + full smoke.sh with SMOKE_LOCAL=1 on a fresh database and again on top of it). Headless Chromium (Playwright from the sandbox's global Node install) drove the acceptance flow: A, search "coast", remove crawler tag "beach", add "Favourite", Enter archived the file into Travel / Coast with exactly those tags; Esc archived nothing; Shift+A on two files with an inline new subfolder; library move of 10 files updated the tree counts; deleting a non-empty folder left no file without a folder; J moved to the next file; tag remove and restore; renaming cats to cat confirmed the merge. No page errors. CI runs smoke.sh (API level) but no browser.
+- Library actions (moves, bulk tags) have no undo; the selection is per page.
+- The archive panel loads the whole folder tree each time it opens (fine for hundreds of folders).
+- Undoing a review action whose tag was later merged into another tag skips that tag's rows.

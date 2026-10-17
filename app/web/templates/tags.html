@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Tags{% endblock %}
+{% block content %}
+<h1>Tags</h1>
+<form method="get" action="/tags" class="tags-filter" role="search">
+  <label>Filter <input type="search" name="q" value="{{ q }}" id="tag-filter" autocomplete="off" placeholder="part of a tag"></label>
+  <noscript><button type="submit">Filter</button></noscript>
+  <span class="muted"><span id="tag-shown">{{ tags | length }}</span> tag{{ "" if tags | length == 1 else "s" }}</span>
+</form>
+{% if tags %}
+<table class="tags-table card" id="tags-table">
+  <thead><tr><th scope="col">Tag</th><th scope="col" class="num">Files</th><th scope="col">Rename</th><th scope="col"><span class="visually-hidden">Delete</span></th></tr></thead>
+  <tbody>
+    {% for tag in tags %}
+    <tr data-tag-id="{{ tag.id }}" data-tag-name="{{ tag.name }}" data-count="{{ tag.count }}">
+      <td class="tag-name">{{ tag.name }}</td>
+      <td class="num">{{ tag.count }}</td>
+      <td>
+        <form class="inline-form" data-tag-rename>
+          <input type="text" name="name" value="{{ tag.name }}" aria-label="New name for {{ tag.name }}" autocomplete="off" required>
+          <button type="submit">Rename</button>
+        </form>
+      </td>
+      <td><button type="button" class="danger" data-tag-delete>Delete</button></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">{% if q %}No tag contains "{{ q }}".{% else %}No tags yet. Tags come from uploads, crawlers and the review page.{% endif %}</p>
+{% endif %}
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script type="module" src="{{ url_for('static', path='js/tags.js') }}"></script>
+{% endblock %}
+{% block shortcuts %}
+<dt><kbd>/</kbd></dt><dd>Filter the tags</dd>
+<dt><kbd>Esc</kbd></dt><dd>Clear the filter</dd>
+{% endblock %}

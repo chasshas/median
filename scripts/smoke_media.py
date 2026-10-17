@@ -6,6 +6,7 @@
 and reencoded.jpg (JPEG quality 60) for the perceptual duplicate checks.
 <dir>/review: 20 structured PNG images for the review queue checks.
 <dir>/review_pair: original.png, resized.png (50 percent) and variant.jpg (JPEG quality 60).
+<dir>/library: crawled.png, ingested with crawler tags for the phase 4 checks.
 Every run produces new content (random pixels and metadata), so repeated runs stay "new".
 """
 
@@ -114,6 +115,8 @@ def main() -> None:
     similar_set(root / "similar")
     review_set(root / "review")
     review_pair(root / "review_pair")
+    (root / "library").mkdir(parents=True, exist_ok=True)
+    image(root / "library" / "crawled.png")
 
 
 if __name__ == "__main__":

@@ -1,12 +1,14 @@
 // Review page: the queue, single/grid/compare views, decisions with undo, and the keyboard map
-// of ARCHITECTURE.md section 13. The server renders the views (/review/fragments/*); decisions
+// of ARCHITECTURE.md section 13. A and Shift+A open the archive panel (archive_panel.js). The server renders the views (/review/fragments/*); decisions
 // go to the JSON API (/api/review/*). No framework; state lives in this module.
 
 const root = document.getElementById("review");
 const stage = document.getElementById("review-stage");
+import { checkLastFolder, keptTags, lastFolderId, openArchivePanel } from "./archive_panel.js";
+
 const toasts = document.getElementById("toasts");
-const folderSelect = document.getElementById("archive-folder");
-const tagsInput = document.getElementById("archive-tags");
+const lastFolderLabel = document.getElementById("last-folder");
+const LAST_FOLDER_PATH_KEY = "median.review.lastFolderPath";
 
 const PAGE_SIZE = 100;
 const GRID_STEP = 200;
@@ -127,10 +129,16 @@ function toast(message, { kind = "info", undo = null } = {}) {
   setTimeout(() => el.remove(), kind === "error" ? 12000 : 6000);
 }
 
+// Compare decisions archive into the panel's last used folder with the kept user tags.
 function archiveOptions() {
-  const tags = (tagsInput?.value || "").split(",").map((t) => t.trim()).filter(Boolean);
-  const folderId = Number(folderSelect?.value) || null;
-  return { folder_id: folderId, tags };
+  return { folder_id: lastFolderId(), add_tags: keptTags() };
+}
+
+function showLastFolder(path = null) {
+  if (path) writeStorage(localStorage, LAST_FOLDER_PATH_KEY, path);
+  const known = lastFolderId() !== null;
+  const stored = readStorage(localStorage, LAST_FOLDER_PATH_KEY, null);
+  lastFolderLabel.textContent = known && stored ? stored : lastFolderLabel.dataset.inboxPath;
 }
 
 function updateCounters() {
@@ -365,11 +373,21 @@ function keepFailed(entries, results) {
 
 async function decide(kind, items) {
   if (!items.length) return;
+  let options = null;
+  if (kind === "archive") {
+    options = await openArchivePanel(items);
+    if (!options) return; // cancelled
+    showLastFolder(options.folder_path);
+  }
   const entries = removeItems(items.map((i) => i.id));
   if (state.mode === "compare") state.mode = "single";
   render(); // move on immediately
   const body = { file_ids: entries.map((e) => e.item.id) };
-  if (kind === "archive") Object.assign(body, archiveOptions());
+  if (options) {
+    body.folder_id = options.folder_id;
+    body.add_tags = options.add_tags;
+    body.remove_tags_per_file = options.remove_tags_per_file;
+  }
   const result = await post(`/api/review/${kind}`, body);
   if (!result.ok) {
     restoreItems(entries);
@@ -378,7 +396,8 @@ async function decide(kind, items) {
     return;
   }
   const done = keepFailed(entries, result.data.results);
-  if (done.length) record(done, result.data.action_ids, kind === "archive" ? "Archived" : "Discarded");
+  const verb = options ? `Archived into ${options.folder_path}:` : "Discarded";
+  if (done.length) record(done, result.data.action_ids, verb);
 }
 
 function decideSelection(kind) {
@@ -591,5 +610,7 @@ for (const button of root.querySelectorAll("[data-mode]")) {
 // --- start -----------------------------------------------------------------------------------
 
 state.decided = Number(readStorage(sessionStorage, DECIDED_KEY, "0")) || 0;
+showLastFolder();
+checkLastFolder().then((path) => showLastFolder(path));
 state.mode = readStorage(localStorage, MODE_KEY, "single") === "grid" ? "grid" : "single";
 loadMore().then(render);

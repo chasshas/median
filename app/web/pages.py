@@ -2,13 +2,12 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import database_ok, get_session
-from app.dedup.views import similar_files
-from app.ingest.views import file_detail, status_counts
+from app.ingest.views import status_counts
 from app.jobs import job_counts
 from app.web import templates
 
@@ -27,9 +26,9 @@ NAV: tuple[NavItem, ...] = (
     NavItem("/", "Dashboard", None),
     NavItem("/upload", "Upload", None),
     NavItem("/review", "Review", None),
-    NavItem("/library", "Library", 4),
+    NavItem("/library", "Library", None),
     NavItem("/search", "Search", 7),
-    NavItem("/tags", "Tags", 4),
+    NavItem("/tags", "Tags", None),
     NavItem("/sources", "Sources", 5),
     NavItem("/jobs", "Jobs", 5),
     NavItem("/settings", "Settings", 8),
@@ -70,19 +69,3 @@ for _item in NAV:
         router.add_api_route(
             _item.path, _coming_soon(_item), methods=["GET"], response_class=HTMLResponse
         )
-
-
-@router.get("/files/{file_id}", response_class=HTMLResponse)
-async def file_page(
-    request: Request, file_id: int, session: Annotated[AsyncSession, Depends(get_session)]
-) -> HTMLResponse:
-    detail = await file_detail(session, file_id)
-    if detail is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
-    return render(
-        request,
-        "file.html",
-        detail=detail,
-        file=detail.file,
-        similar=await similar_files(session, file_id),
-    )

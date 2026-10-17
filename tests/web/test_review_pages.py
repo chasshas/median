@@ -28,9 +28,13 @@ async def test_review_page_shell(client: httpx.AsyncClient, sessionmaker, paths,
     assert 'id="remaining"' in html and 'id="decided"' in html
     assert '<option value="newest" selected>' in html
     assert 'value="image" checked' in html
-    # Inbox is the first (default) archive folder.
-    folders = html[html.index('id="archive-folder"') :]
-    assert folders.index(">Inbox<") < folders.index(">Art<")
+    # A opens the archive panel (folders and tags are loaded from the JSON API).
+    assert 'id="archive-panel"' in html and "js/review.js" in html
+    for element in ("folder-search", "recent-folders", "folder-picker", "new-subfolder"):
+        assert f'id="{element}"' in html
+    for element in ("crawler-tags", "user-tag-input", "keep-user-tags"):
+        assert f'id="{element}"' in html
+    assert 'id="last-folder" data-inbox-path="Inbox"' in html
     for key in (
         "Shift</kbd>+<kbd>A",
         "<kbd>U</kbd>",

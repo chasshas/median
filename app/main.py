@@ -11,6 +11,7 @@ from app.config import Settings, get_settings
 from app.db.engine import create_engine, create_sessionmaker
 from app.jobs import open_jobs
 from app.web import STATIC_DIR
+from app.web.library import router as library_router
 from app.web.media import router as media_router
 from app.web.pages import router as pages_router
 from app.web.review import router as review_router
@@ -37,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_router)
     app.include_router(media_router)
     app.include_router(review_router)
+    app.include_router(library_router)
     app.include_router(pages_router)
     return app
 

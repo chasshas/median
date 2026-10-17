@@ -441,3 +441,56 @@ def test_purge_trash_cli(capsys, sessionmaker) -> None:
 
     assert main(["purge-trash"]) == 0
     assert capsys.readouterr().out.strip() == "purge-trash: expired 0, purged 0, errors 0"
+
+
+async def test_archive_with_folder_and_tag_changes_in_one_call(
+    sessionmaker, paths, db_conn
+) -> None:
+    origin = IngestOrigin(tags=["keep me", "drop me", "drop too"])
+    await run(sessionmaker, paths, structured_png(40), "panel.png", origin)
+    fid = one(db_conn, "SELECT id FROM files")[0]
+    parent = make_folder(db_conn, "Animals")
+    nested = make_folder(db_conn, "Cats", parent)
+
+    result = await decide(
+        sessionmaker,
+        service.archive,
+        paths,
+        [fid],
+        nested,
+        ["Mine", "drop too"],
+        {fid: ["Drop Me", "drop too", "never existed"]},
+    )
+
+    assert result.ok
+    assert file_row(db_conn, fid)["folder_id"] == nested
+    # "drop too" is removed and then added back by the user in the same call.
+    assert active_tags(db_conn, fid) == {"keep_me": "crawler", "mine": "user", "drop_too": "user"}
+    removed = db_conn.execute(
+        "SELECT t.name, ft.origin::text FROM file_tags ft JOIN tags t ON t.id = ft.tag_id"
+        " WHERE ft.file_id = %s AND ft.removed",
+        (fid,),
+    ).fetchall()
+    assert removed == [("drop_me", "crawler")]
+
+    undone = await decide(sessionmaker, service.undo, paths, result.action_ids)
+    assert undone.ok
+    assert active_tags(db_conn, fid) == {
+        "keep_me": "crawler",
+        "drop_me": "crawler",
+        "drop_too": "crawler",
+    }
+
+
+async def test_bulk_archive_with_folder_and_added_tags(sessionmaker, paths, db_conn) -> None:
+    ids = await pending(sessionmaker, paths, db_conn, 3, seed=50)
+    folder = make_folder(db_conn, "Bulk")
+
+    result = await decide(sessionmaker, service.archive, paths, ids, folder, ["batch", "Two Words"])
+
+    assert result.ok and len(result.action_ids) == 3
+    for fid in ids:
+        row = file_row(db_conn, fid)
+        assert (row["status"], row["folder_id"]) == ("archived", folder)
+        assert active_tags(db_conn, fid) == {"batch": "user", "two_words": "user"}
+        assert locations(paths, row)["archive"]

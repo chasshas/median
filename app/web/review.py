@@ -12,7 +12,6 @@ from app.db.engine import get_session
 from app.db.models_files import File, FileSource, FileStatus, MediaKind
 from app.dedup.views import similar_badges, similar_files
 from app.ingest.views import file_detail, files_with_status, status_counts
-from app.library.folders import folder_choices
 from app.review.queue import QueueFilters
 from app.storage import get_paths
 from app.web.pages import render
@@ -51,7 +50,6 @@ async def review_page(
         filters=filters,
         query=query,
         counts=await status_counts(session),
-        folders=await folder_choices(session),
         source_keys=await _source_keys(session),
         media_kinds=[k.value for k in MediaKind],
         errors=(

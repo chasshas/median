@@ -41,3 +41,10 @@ def duration(ms: int | None) -> str:
 templates.env.filters["localtime"] = localtime
 templates.env.filters["filesize"] = filesize
 templates.env.filters["duration"] = duration
+
+
+def with_query(path: str, query: str) -> str:
+    return f"{path}?{query}" if query else path
+
+
+templates.env.filters["with_query"] = with_query

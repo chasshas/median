@@ -345,4 +345,120 @@ reply=$(post_json /api/review/undo "{\"action_ids\": $discard_actions}")
 grep -q "no longer in the trash" <<<"$reply" || fail "undo after purge: $reply"
 echo "PASS $purge_out; undo after purge refused: $(json_get "$reply" 'd["results"][0]["error"]')"
 
+# Phase 4: archive panel call, library tree counts and moves, folder delete, tag merge,
+# removed crawler tags surviving a duplicate ingest.
+patch_json() { # patch_json <path> <json>
+    curl -fsS -X PATCH -H 'Content-Type: application/json' -d "$2" "$BASE$1" || fail "PATCH $1 $2"
+}
+
+folder_counts() { # folder_counts <folder_id>: "direct subtree" from GET /api/folders
+    curl -fsS "$BASE/api/folders" | python3 -c '
+import json, sys
+def walk(nodes):
+    for n in nodes:
+        if n["id"] == int(sys.argv[1]):
+            print(n["direct_count"], n["subtree_count"])
+        walk(n["children"])
+walk(json.load(sys.stdin)["folders"])' "$1"
+}
+
+tag_state() { # tag_state <file_id>: "active=name:origin,... removed=name,..." from the API
+    json_get "$(curl -fsS "$BASE/api/files/$1/tags")" \
+        '"active=" + ",".join(t["name"] + ":" + t["origin"] for t in d["active"]) + " removed=" + ",".join(t["name"] for t in d["removed"])'
+}
+
+for path in /library /tags; do
+    page=$(curl -fsS "$BASE$path") || fail "GET $path"
+    grep -q "Coming in phase" <<<"$page" && fail "$path is still a placeholder"
+done
+grep -q 'id="archive-panel"' <<<"$(curl -fsS "$BASE/review")" || fail "/review has no archive panel"
+
+if [[ "$LOCAL" == 1 ]]; then crawled="$media/library/crawled.png"; else crawled="$media_in_app/library/crawled.png"; fi
+run_tag=$RANDOM$RANDOM
+crawl_batch=$(in_app python scripts/smoke_crawler_ingest.py "$crawled" smoke_addon "post-$run_tag-1" \
+    "Sunset,Beach,Sky") || fail "crawler ingest"
+status=$(wait_batch "$crawl_batch")
+[[ $(json_get "$status" 'd["counts"]["new"]') == 1 ]] || fail "crawler ingest: $status"
+crawled_id=$(json_get "$status" 'd["files"][0]["file_id"]')
+travel=$(json_get "$(post_json /api/folders "{\"name\": \"Travel $run_tag\"}")" 'd["id"]')
+coast=$(json_get "$(post_json /api/folders "{\"name\": \"Coast\", \"parent_id\": $travel}")" 'd["id"]')
+reply=$(post_json /api/review/archive "{\"file_ids\": [$crawled_id], \"folder_id\": $coast,
+    \"add_tags\": [\"Favourite\"], \"remove_tags_per_file\": {\"$crawled_id\": [\"beach\"]}}")
+[[ $(json_get "$reply" 'd["ok"]') == True ]] || fail "archive with panel options: $reply"
+row=$(sql "SELECT status, folder_id FROM files WHERE id = $crawled_id")
+state=$(tag_state "$crawled_id")
+[[ "$row" == "archived|$coast" ]] || fail "archived file $crawled_id: $row"
+[[ "$state" == "active=favourite:user,sky:crawler,sunset:crawler removed=beach" ]] ||
+    fail "tags of $crawled_id: $state"
+[[ $(where_is "$crawled_id") == archive ]] || fail "original of $crawled_id not under archive/"
+echo "PASS archive panel call: file $crawled_id archived into Travel $run_tag / Coast with $state"
+
+dup_batch=$(in_app python scripts/smoke_crawler_ingest.py "$crawled" smoke_addon "post-$run_tag-2" \
+    "beach,sunset,Night") || fail "duplicate crawler ingest"
+status=$(wait_batch "$dup_batch")
+[[ $(json_get "$status" 'd["counts"]["duplicate_exact"]') == 1 ]] || fail "duplicate ingest: $status"
+state=$(tag_state "$crawled_id")
+[[ "$state" == "active=favourite:user,night:crawler,sky:crawler,sunset:crawler removed=beach" ]] ||
+    fail "after duplicate ingest: $state"
+echo "PASS duplicate ingest from the same add-on: 'beach' stays removed, new crawler tag added ($state)"
+
+box_files=$(curl -fsS "$BASE/api/library?folder=$inbox_id&per_page=10")
+move_ids=$(json_get "$box_files" '",".join(str(i["id"]) for i in d["items"])')
+[[ $(json_get "$box_files" 'len(d["items"])') == 10 ]] || fail "need 10 archived files in the Inbox"
+read -r box_before _ <<<"$(folder_counts "$inbox_id")"
+mountains=$(json_get "$(post_json /api/folders "{\"name\": \"Mountains\", \"parent_id\": $travel}")" 'd["id"]')
+reply=$(post_json /api/library/move "{\"file_ids\": [$move_ids], \"folder_id\": $mountains}")
+[[ $(json_get "$reply" 'd["ok"]') == True ]] || fail "move 10 files: $reply"
+read -r box_after _ <<<"$(folder_counts "$inbox_id")"
+[[ "$(folder_counts "$mountains")" == "10 10" && "$(folder_counts "$travel")" == "0 11" ]] ||
+    fail "counts after move: mountains $(folder_counts "$mountains"), travel $(folder_counts "$travel")"
+[[ $((box_before - box_after)) == 10 ]] || fail "Inbox count went $box_before -> $box_after"
+first_moved=${move_ids%%,*}
+[[ $(where_is "$first_moved") == archive ]] || fail "moved file $first_moved left archive/"
+tree=$(curl -fsS "$BASE/library?folder=$mountains")
+grep -qE "href=\"/library\?folder=$travel\"[^>]*>Travel $run_tag <span class=\"folder-count\"[^>]*>0 / 11<" <<<"$tree" ||
+    fail "library tree does not show Travel $run_tag 0 / 11"
+[[ $(grep -c 'class="tile library-tile"' <<<"$tree") == 10 ]] || fail "library grid of Mountains"
+echo "PASS moved 10 files Inbox -> Travel $run_tag / Mountains: Inbox $box_before -> $box_after, Mountains $(folder_counts "$mountains"), Travel $(folder_counts "$travel") (direct subtree); originals stay under archive/"
+
+# Deleting Travel moves Coast and Mountains to the top level; a top-level folder with the same
+# name as Mountains already exists, so Mountains is merged into it (with its own subfolder).
+ridge=$(json_get "$(post_json /api/folders "{\"name\": \"Ridge\", \"parent_id\": $mountains}")" 'd["id"]')
+post_json /api/library/move "{\"file_ids\": [$first_moved], \"folder_id\": $ridge}" >/dev/null
+top_mountains=$(json_get "$(post_json /api/folders "{\"name\": \"Mountains $run_tag\"}")" 'd["id"]')
+patch_json "/api/folders/$mountains" "{\"name\": \"mountains $run_tag\"}" >/dev/null
+patch_json "/api/folders/$coast" "{\"name\": \"Coast $run_tag\"}" >/dev/null
+code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$BASE/api/folders/$travel")
+[[ "$code" == 409 ]] || fail "deleting a non-empty folder without moving returned $code"
+reply=$(curl -fsS -X DELETE "$BASE/api/folders/$travel?move_contents_to_parent=true") ||
+    fail "delete Travel $run_tag"
+[[ $(json_get "$reply" '(d["folders_moved"], d["folders_merged"])') == "(2, 1)" ]] ||
+    fail "delete Travel $run_tag: $reply"
+orphans=$(sql "SELECT count(*) FROM files WHERE status = 'archived' AND (folder_id IS NULL OR folder_id NOT IN (SELECT id FROM folders))")
+[[ "$orphans" == 0 ]] || fail "$orphans archived files without a folder"
+[[ "$(folder_counts "$top_mountains")" == "9 10" ]] ||
+    fail "merged Mountains $run_tag: $(folder_counts "$top_mountains")"
+[[ $(sql "SELECT parent_id FROM folders WHERE id = $ridge") == "$top_mountains" ]] ||
+    fail "Ridge was not moved into the merged folder"
+[[ $(sql "SELECT folder_id FROM files WHERE id = $crawled_id") == "$coast" ]] ||
+    fail "file $crawled_id left Coast $run_tag"
+echo "PASS deleting Travel $run_tag with move_contents_to_parent: $(json_get "$reply" 'd'); Mountains merged into the top-level one ($(folder_counts "$top_mountains") direct subtree); archived files without a folder: $orphans"
+
+cat_ids=$(json_get "$(curl -fsS "$BASE/api/library?per_page=3")" '",".join(str(i["id"]) for i in d["items"])')
+IFS=, read -r t1 t2 t3 <<<"$cat_ids"
+post_json /api/library/tags/add "{\"file_ids\": [$t1, $t2], \"tags\": [\"cats\"]}" >/dev/null
+post_json /api/library/tags/add "{\"file_ids\": [$t2, $t3], \"tags\": [\"cat\"]}" >/dev/null
+cats_id=$(sql "SELECT id FROM tags WHERE name = 'cats'")
+cat_id=$(sql "SELECT id FROM tags WHERE name = 'cat'")
+expected=$(sql "SELECT count(DISTINCT file_id) FROM file_tags WHERE tag_id IN ($cats_id, $cat_id) AND NOT removed")
+code=$(curl -s -o "$TMP/rename" -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d '{"name": "cat"}' "$BASE/api/tags/$cats_id/rename")
+[[ "$code" == 409 ]] && grep -q '"merge_into"' "$TMP/rename" || fail "rename warning: $code $(cat "$TMP/rename")"
+reply=$(post_json "/api/tags/$cats_id/rename" '{"name": "cat", "merge": true}')
+[[ $(json_get "$reply" 'd["merged_from"]') == cats && $(json_get "$reply" 'd["tag"]["count"]') == "$expected" ]] ||
+    fail "merge: $reply (expected $expected files)"
+[[ $(sql "SELECT count(*) FROM tags WHERE name = 'cats'") == 0 ]] || fail "tag cats still exists"
+grep -q 'data-tag-name="cat" data-count="'"$expected"'"' <<<"$(curl -fsS "$BASE/tags")" || fail "/tags count"
+echo "PASS renaming 'cats' to existing 'cat' warns (409 merge_into), then merges: $(json_get "$reply" 'd["tag"]')"
+
 echo "All smoke checks passed."

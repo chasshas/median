@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Library{% endblock %}
+{% block content %}
+<div class="library" id="library" data-folder-id="{{ selected.id if selected else '' }}">
+  <aside class="library-sidebar card">
+    <h2>Folders</h2>
+    <ul class="folder-tree" id="folder-tree">
+      <li><a href="{{ lib_url(folder_id=None) }}" class="folder-link{% if not selected %} current{% endif %}">All folders <span class="folder-count" title="archived files">{{ all_count }}</span></a></li>
+      {% macro branch(nodes) %}
+      {% for node in nodes %}
+      <li data-folder-id="{{ node.id }}">
+        {% set link %}<a href="{{ lib_url(folder_id=node.id) }}" class="folder-link{% if selected and selected.id == node.id %} current{% endif %}" title="{{ node.path }}">{{ node.name }} <span class="folder-count" title="{{ node.direct_count }} here, {{ node.subtree_count }} with subfolders">{{ node.direct_count }}{% if node.children %} / {{ node.subtree_count }}{% endif %}</span></a>{% endset %}
+        {% if node.children %}
+        <details{% if node.id in open_ids %} open{% endif %}>
+          <summary>{{ link }}</summary>
+          <ul>{{ branch(node.children) }}</ul>
+        </details>
+        {% else %}<span class="folder-leaf">{{ link }}</span>{% endif %}
+      </li>
+      {% endfor %}
+      {% endmacro %}
+      {{ branch(tree) }}
+    </ul>
+
+    <div class="folder-actions">
+      <form data-folder-action="create" class="inline-form">
+        <input type="hidden" name="parent_id" value="{{ selected.id if selected else '' }}">
+        <label>{% if selected %}New subfolder of {{ selected.name }}{% else %}New top-level folder{% endif %}
+          <input type="text" name="name" required maxlength="100" autocomplete="off" id="new-folder-name"></label>
+        <button type="submit">Create</button>
+      </form>
+      {% if selected and not selected.is_inbox %}
+      <form data-folder-action="rename" class="inline-form">
+        <label>Rename <input type="text" name="name" value="{{ selected.name }}" required maxlength="100" autocomplete="off"></label>
+        <button type="submit">Rename</button>
+      </form>
+      <form data-folder-action="move" class="inline-form">
+        <label>Move into
+          <select name="parent_id">
+            <option value="">(top level)</option>
+            {% for node in move_targets %}<option value="{{ node.id }}"{% if node.id == selected.parent_id %} selected{% endif %}>{{ node.path }}</option>{% endfor %}
+          </select>
+        </label>
+        <button type="submit">Move</button>
+      </form>
+      <form data-folder-action="delete" class="inline-form" data-subtree-count="{{ selected.subtree_count }}" data-has-children="{{ 1 if selected.children else 0 }}" data-path="{{ selected.path }}">
+        <label class="checkbox"><input type="checkbox" name="move_contents_to_parent" value="true"{% if selected.subtree_count or selected.children %} checked{% endif %}> Move files and subfolders to {{ "the parent folder" if selected.parent_id else "the top level (files to the Inbox)" }}</label>
+        <button type="submit" class="danger">Delete folder</button>
+      </form>
+      {% endif %}
+    </div>
+  </aside>
+
+  <section class="library-main">
+    <div class="library-head">
+      <h1>{{ selected.path if selected else "All folders" }}</h1>
+      <span class="muted" id="library-total">{{ result.total }} file{{ "" if result.total == 1 else "s" }}</span>
+    </div>
+    <form method="get" action="/library" class="library-controls card">
+      {% if selected %}<input type="hidden" name="folder" value="{{ selected.id }}">{% endif %}
+      {% if selected %}<label class="checkbox"><input type="checkbox" name="sub" value="1"{% if ctx.include_subfolders %} checked{% endif %} onchange="this.form.requestSubmit()"> Include subfolders</label>{% endif %}
+      <label>Sort
+        <select name="sort" onchange="this.form.requestSubmit()">
+          {% for s in sorts %}<option value="{{ s }}"{% if s == ctx.sort %} selected{% endif %}>{{ {"archived": "archived date", "collected": "collected date", "size": "size", "name": "name"}[s] }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Order
+        <select name="dir" onchange="this.form.requestSubmit()">
+          <option value="desc"{% if ctx.dir == "desc" %} selected{% endif %}>descending</option>
+          <option value="asc"{% if ctx.dir == "asc" %} selected{% endif %}>ascending</option>
+        </select>
+      </label>
+      <noscript><button type="submit">Apply</button></noscript>
+    </form>
+
+    <div class="selection-bar card" id="selection-bar">
+      <button type="button" data-select="page">Select page</button>
+      <button type="button" data-select="none">Clear</button>
+      <span><span id="selected-count">0</span> selected</span>
+      <form data-bulk="move" class="inline-form">
+        <select name="folder_id" id="bulk-folder" aria-label="Target folder">
+          {% for node in flat %}<option value="{{ node.id }}">{{ node.path }}</option>{% endfor %}
+        </select>
+        <button type="submit">Move</button>
+      </form>
+      <form data-bulk="tags/add" class="inline-form">
+        <input type="text" name="tag" placeholder="tag" list="tag-suggestions" autocomplete="off" aria-label="Tag to add" id="bulk-add-tag" data-autocomplete>
+        <button type="submit">Add tag</button>
+      </form>
+      <form data-bulk="tags/remove" class="inline-form">
+        <input type="text" name="tag" placeholder="tag" list="tag-suggestions" autocomplete="off" aria-label="Tag to remove" data-autocomplete>
+        <button type="submit">Remove tag</button>
+      </form>
+      <button type="button" data-bulk-discard class="danger">Discard</button>
+      <datalist id="tag-suggestions"></datalist>
+    </div>
+
+    {% if result.files %}
+    <ul class="grid library-grid" id="library-grid">
+      {% for f in result.files %}
+      <li class="tile library-tile" data-file-id="{{ f.id }}">
+        <label class="tile-check"><input type="checkbox" data-select-file="{{ f.id }}" aria-label="Select {{ f.title or f.original_filename or ('file ' ~ f.id) }}"></label>
+        <a href="/files/{{ f.id }}?{{ file_query }}">
+          {% if f.has_thumb %}<img src="/media/{{ f.id }}/thumb" alt="{{ f.original_filename or '' }}" loading="lazy" width="160" height="160">
+          {% else %}<span class="no-thumb">{{ f.media_kind.value }}</span>{% endif %}
+          <span class="tile-name">{{ f.title or f.original_filename or ("file " ~ f.id) }}</span>
+          <span class="tile-meta muted">{{ f.size_bytes | filesize }}{% if f.width %} · {{ f.width }}&times;{{ f.height }}{% endif %}</span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% if result.pages > 1 %}
+    <nav class="pagination" aria-label="Pages">
+      {% if result.page > 1 %}<a href="{{ lib_url(page=result.page - 1) }}" rel="prev">&larr; Previous</a>{% endif %}
+      <span>Page {{ result.page }} of {{ result.pages }}</span>
+      {% if result.page < result.pages %}<a href="{{ lib_url(page=result.page + 1) }}" rel="next">Next &rarr;</a>{% endif %}
+    </nav>
+    {% endif %}
+    {% else %}
+    <p class="muted library-empty">No archived files here{% if selected and not ctx.include_subfolders and selected.subtree_count %} (subfolders have {{ selected.subtree_count }}; tick "Include subfolders"){% endif %}.</p>
+    {% endif %}
+  </section>
+</div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script type="module" src="{{ url_for('static', path='js/library.js') }}"></script>
+{% endblock %}
+{% block shortcuts %}
+<dt><kbd>J</kbd> / <kbd>K</kbd></dt><dd>Next / previous file</dd>
+<dt><kbd>Enter</kbd></dt><dd>Open the focused file</dd>
+<dt><kbd>X</kbd></dt><dd>Select or unselect the focused file</dd>
+<dt><kbd>Shift</kbd>+<kbd>A</kbd></dt><dd>Select every file on this page</dd>
+<dt><kbd>Esc</kbd></dt><dd>Clear the selection</dd>
+<dt><kbd>M</kbd></dt><dd>Move the selection: choose the target folder</dd>
+<dt><kbd>T</kbd></dt><dd>Add a tag to the selection</dd>
+<dt><kbd>N</kbd></dt><dd>New folder</dd>
+{% endblock %}

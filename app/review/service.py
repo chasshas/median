@@ -6,7 +6,7 @@ only after the transaction commits (run_after_commit); the caller commits.
 """
 
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
@@ -18,10 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models_dedup import SimilarPair
 from app.db.models_files import File, FileStatus
-from app.db.models_library import FileTag, TagOrigin
+from app.db.models_library import FileTag, Tag, TagOrigin
 from app.db.models_review import ReviewAction, ReviewActionKind
 from app.library.folders import folder_exists, inbox_id
-from app.library.tags import get_or_create_tags
+from app.library.tags import get_or_create_tags, normalize_tags
 from app.storage import DataPaths, atomic_move, run_after_commit
 
 CompareChoice = Literal["keep_left", "keep_right", "keep_both", "replace"]
@@ -174,8 +174,42 @@ async def _activate_tags(
     return changes
 
 
+async def _deactivate_tags(
+    session: AsyncSession, file_id: int, tag_ids: Sequence[int]
+) -> list[dict[str, Any]]:
+    """Mark active tags removed (any origin). Returns the previous state of each changed row."""
+    if not tag_ids:
+        return []
+    rows = await session.scalars(
+        select(FileTag).where(
+            FileTag.file_id == file_id, FileTag.tag_id.in_(tag_ids), FileTag.removed.is_(False)
+        )
+    )
+    changes: list[dict[str, Any]] = []
+    for row in rows.all():
+        changes.append(
+            {"tag_id": row.tag_id, "previous": {"origin": row.origin.value, "removed": False}}
+        )
+        row.removed = True
+    return changes
+
+
+async def _removal_tag_ids(
+    session: AsyncSession, per_file: Mapping[int, Iterable[str]]
+) -> dict[int, list[int]]:
+    """Tag ids by file id for the given names; unknown names are ignored (nothing to remove)."""
+    wanted = {file_id: normalize_tags(names) for file_id, names in per_file.items()}
+    names = {n for found in wanted.values() for n in found}
+    if not names:
+        return {}
+    rows = await session.execute(select(Tag.name, Tag.id).where(Tag.name.in_(names)))
+    ids = dict(rows.all())
+    return {fid: [ids[n] for n in found if n in ids] for fid, found in wanted.items()}
+
+
 async def _revert_tags(session: AsyncSession, file_id: int, changes: list[dict[str, Any]]) -> None:
-    for change in changes:
+    # Newest change first: one tag can be removed and then re-added by the same action.
+    for change in reversed(changes):
         row = await session.get(FileTag, (file_id, change["tag_id"]))
         if row is None:
             continue
@@ -230,11 +264,13 @@ async def _archive_one(
     kind: ReviewActionKind,
     now: datetime,
     group_id: uuid.UUID | None = None,
+    remove: Sequence[int] = (),
 ) -> ReviewAction:
     """pending_review -> archived: staging -> archive/<sha>.<ext> after commit."""
     src = current_original(paths, file)
     assert src is not None
-    changes = await _activate_tags(session, file.id, tags)
+    changes = await _deactivate_tags(session, file.id, remove)
+    changes += await _activate_tags(session, file.id, tags)
     action = _record(session, file, kind, group_id, changes)
     file.status = FileStatus.archived
     file.folder_id = folder_id
@@ -277,12 +313,19 @@ async def archive(
     paths: DataPaths,
     file_ids: Iterable[int],
     folder_id: int | None = None,
-    tags: Iterable[str] = (),
+    add_tags: Iterable[str] = (),
+    remove_tags_per_file: Mapping[int, Iterable[str]] | None = None,
 ) -> ReviewResult:
-    """Archive pending files into folder_id (default Inbox), adding tags with origin user."""
+    """Archive pending files into folder_id (default Inbox).
+
+    add_tags are added to every file with origin user. remove_tags_per_file maps a file id to
+    tag names that file loses (removed = true, any origin) before the tags are added. Both
+    are recorded in the action, so undo restores the previous tag rows.
+    """
     ids = _unique(file_ids)
     folder = await _target_folder(session, folder_id)
-    tag_rows = [(t.id, TagOrigin.user) for t in await get_or_create_tags(session, tags)]
+    tag_rows = [(t.id, TagOrigin.user) for t in await get_or_create_tags(session, add_tags)]
+    removals = await _removal_tag_ids(session, remove_tags_per_file or {})
     files = await _lock_files(session, ids)
     now = _now()
     result = ReviewResult()
@@ -297,7 +340,14 @@ async def archive(
             continue
         assert file is not None
         action = await _archive_one(
-            session, paths, file, folder, tag_rows, ReviewActionKind.archive, now
+            session,
+            paths,
+            file,
+            folder,
+            tag_rows,
+            ReviewActionKind.archive,
+            now,
+            remove=removals.get(file_id, ()),
         )
         result.results.append(FileResult(file_id, True, file.status.value, action.id))
     return result

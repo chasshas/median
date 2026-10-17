@@ -1,0 +1,31 @@
+{# Tag editor of the file page: active tags as chips, add with autocomplete, removed tags. #}
+<div class="tag-editor" id="file-tag-editor" data-file-id="{{ file_id }}">
+  {% if active_tags %}
+  <ul class="tags chips" id="file-tags">
+    {% for tag in active_tags %}
+    <li class="tag chip tag-{{ tag.origin }}" data-tag-id="{{ tag.tag_id }}" title="{{ tag.origin }} tag">
+      <span>{{ tag.name }}</span>{% if tag.origin == "crawler" %}<span class="origin" aria-label="from a crawler">c</span>{% endif %}
+      <button type="button" class="chip-remove" data-tag-remove="{{ tag.tag_id }}" aria-label="Remove {{ tag.name }}" title="Remove">&times;</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">No tags.</p>{% endif %}
+  <form class="inline-form" data-tag-add>
+    <input type="text" name="name" placeholder="add a tag" list="file-tag-suggestions" autocomplete="off" aria-label="Add a tag" data-autocomplete="file-tag-suggestions" id="file-tag-input">
+    <datalist id="file-tag-suggestions"></datalist>
+    <button type="submit">Add</button>
+  </form>
+  {% if removed_tags %}
+  <details class="removed-tags">
+    <summary>Removed tags ({{ removed_tags | length }})</summary>
+    <ul class="tags">
+      {% for tag in removed_tags %}
+      <li class="tag removed" data-tag-id="{{ tag.tag_id }}" title="{{ tag.origin }} tag, removed: recrawls will not add it again">
+        <s>{{ tag.name }}</s>
+        <button type="button" class="chip-remove" data-tag-restore="{{ tag.tag_id }}" title="Restore">restore</button>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</div>
