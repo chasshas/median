@@ -18,6 +18,9 @@
         {% endfor %}
       </ul>
     </nav>
+    <form method="get" action="/search" class="nav-search" role="search">
+      <input type="search" name="q" placeholder="Search" aria-label="Search the library" autocomplete="off"{% if current == "/search" %} value="{{ canonical | default('') }}"{% endif %}>
+    </form>
     <button type="button" class="help-button" data-shortcuts-open title="Keyboard shortcuts (?)">?</button>
   </header>
   <main>

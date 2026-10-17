@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% import "fragments/file_grid.html" as grid %}
+{% block title %}Search{% endblock %}
+{% block content %}
+<div class="library search" id="search" data-query="{{ canonical }}">
+  <aside class="library-sidebar card" id="saved-searches">
+    <h2>Saved searches</h2>
+    {% if saved %}
+    <ul class="saved-list">
+      {% for s in saved %}
+      <li data-saved-id="{{ s.id }}" data-saved-name="{{ s.name }}">
+        <a href="{{ search_url(s.query) }}" class="folder-link{% if s.query == canonical %} current{% endif %}" title="{{ s.query }}">{{ s.name }}</a>
+        <span class="saved-actions">
+          <button type="button" data-saved-rename="{{ s.id }}" title="Rename">Rename</button>
+          <button type="button" data-saved-delete="{{ s.id }}" class="danger" title="Delete">Delete</button>
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">None yet.</p>{% endif %}
+    <form id="save-search" class="inline-form">
+      <label>Save this search as <input type="text" name="name" required maxlength="100" autocomplete="off" id="save-search-name"></label>
+      <button type="submit">Save</button>
+    </form>
+  </aside>
+
+  <section class="library-main">
+    <form method="get" action="/search" class="search-box card" id="query-form" role="search">
+      <div class="search-input">
+        <input type="search" name="q" id="search-q" value="{{ q }}" autocomplete="off" spellcheck="false"
+          aria-label="Search query" aria-autocomplete="list" aria-controls="search-suggest"
+          placeholder='cat -dog ~red folder:"Animals" collected:2026-01-01..2026-12-31 type:image "words"'>
+        <ul id="search-suggest" class="suggest" role="listbox" hidden></ul>
+      </div>
+      <label>Sort
+        <select name="sort" id="search-sort" onchange="this.form.requestSubmit()">
+          {% for s in sorts %}<option value="{{ s }}"{% if s == flt.sort %} selected{% endif %}>{{ sort_labels[s] }}</option>{% endfor %}
+        </select>
+      </label>
+      {% if flt.sort == "random" and flt.seed is not none %}<input type="hidden" name="seed" value="{{ flt.seed }}">{% endif %}
+      <button type="submit">Search</button>
+    </form>
+    <p class="search-error" id="search-error" role="alert"{% if not error %} hidden{% endif %}>{% if error %}{{ error.message }}{% if error.position is defined and error.position is not none %} (at character {{ error.position + 1 }}){% endif %}{% endif %}</p>
+    <ul class="search-warnings muted" id="search-warnings">
+      {% for w in warnings %}<li>{{ w.message }}</li>{% endfor %}
+    </ul>
+
+    <details class="card filter-panel" id="filter-panel" open>
+      <summary>Filters</summary>
+      <form method="get" action="/search" id="panel-form" class="panel-form">
+        <input type="hidden" name="panel" value="1">
+        <input type="hidden" name="sort" value="{{ flt.sort }}">
+        {% if flt.sort == "random" and flt.seed is not none %}<input type="hidden" name="seed" value="{{ flt.seed }}">{% endif %}
+        <fieldset>
+          <legend>Tags</legend>
+          <label>Must have <input type="text" name="tags_all" value="{{ fields.tags_all }}" autocomplete="off"></label>
+          <label>Any of <input type="text" name="tags_any" value="{{ fields.tags_any }}" autocomplete="off"></label>
+          <label>Must not have <input type="text" name="tags_none" value="{{ fields.tags_none }}" autocomplete="off"></label>
+        </fieldset>
+        <fieldset>
+          <legend>Folder</legend>
+          <label>Folder
+            <select name="folder">
+              <option value="">(any folder)</option>
+              {% for c in folders %}<option value="{{ c.id }}"{% if fields.folder == c.id | string %} selected{% endif %}>{{ c.path }}</option>{% endfor %}
+            </select>
+          </label>
+          <label class="checkbox"><input type="checkbox" name="exact" value="1"{% if fields.exact %} checked{% endif %}> Exactly this folder (no subfolders)</label>
+        </fieldset>
+        <fieldset>
+          <legend>Dates (inclusive)</legend>
+          <label>Collected from <input type="date" name="collected_from" value="{{ fields.collected_from }}"></label>
+          <label>to <input type="date" name="collected_to" value="{{ fields.collected_to }}"></label>
+          <label>Archived from <input type="date" name="archived_from" value="{{ fields.archived_from }}"></label>
+          <label>to <input type="date" name="archived_to" value="{{ fields.archived_to }}"></label>
+        </fieldset>
+        <fieldset>
+          <legend>Type</legend>
+          {% for k in media_kinds %}<label class="checkbox"><input type="checkbox" name="type" value="{{ k }}"{% if k in fields.type %} checked{% endif %}> {{ k }}</label>{% endfor %}
+        </fieldset>
+        <fieldset>
+          <legend>Status</legend>
+          {% for s in status_words %}<label class="checkbox"><input type="checkbox" name="status" value="{{ s }}"{% if s in fields.status %} checked{% endif %}> {{ s }}</label>{% endfor %}
+        </fieldset>
+        <fieldset>
+          <legend>Source and text</legend>
+          <label>Source <input type="text" name="source" value="{{ fields.source }}" autocomplete="off" placeholder="upload ytdlp"></label>
+          <div id="text-fields" class="text-fields">
+            {% for t in fields.text %}<label>Text <input type="text" name="text" value="{{ t }}" autocomplete="off"></label>{% endfor %}
+            <label>Text <input type="text" name="text" value="" autocomplete="off" placeholder="title, file name or description"></label>
+          </div>
+        </fieldset>
+        <button type="submit">Apply</button>
+      </form>
+    </details>
+
+    {% if page %}
+    <div class="library-head">
+      <h1>Search</h1>
+      <span class="muted" id="search-total">{{ page.total }} file{{ "" if page.total == 1 else "s" }}{% if page.files and (start or next_url) %} · showing {{ start + 1 }}–{{ start + page.files | length }}{% endif %}</span>
+    </div>
+    {{ grid.selection_bar(folders) }}
+    {% if items %}
+    <ul class="grid library-grid" id="library-grid">
+      {% for item in items %}{{ grid.tile(item.file, "/files/" ~ item.file.id, item.folder_path, item.tags, item.original_deleted) }}
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted library-empty">No files match.</p>{% endif %}
+    {% if next_url or first_url %}
+    <nav class="pagination" aria-label="Pages">
+      {% if first_url %}<a href="{{ first_url }}" rel="first">&laquo; First page</a>{% endif %}
+      {% if next_url %}<a href="{{ next_url }}" rel="next">Next page &rarr;</a>{% endif %}
+    </nav>
+    {% endif %}
+    {% endif %}
+  </section>
+</div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script type="module" src="{{ url_for('static', path='js/search.js') }}"></script>
+{% endblock %}
+{% block shortcuts %}
+<dt><kbd>/</kbd></dt><dd>Focus the query box</dd>
+<dt><kbd>&uarr;</kbd> / <kbd>&darr;</kbd> then <kbd>Enter</kbd></dt><dd>Choose a suggestion in the query box</dd>
+<dt><kbd>Tab</kbd></dt><dd>Take the chosen (or first) suggestion</dd>
+<dt><kbd>F</kbd></dt><dd>Show or hide the filter panel</dd>
+<dt><kbd>J</kbd> / <kbd>K</kbd></dt><dd>Next / previous file</dd>
+<dt><kbd>Enter</kbd></dt><dd>Open the focused file</dd>
+<dt><kbd>X</kbd></dt><dd>Select or unselect the focused file</dd>
+<dt><kbd>Shift</kbd>+<kbd>A</kbd></dt><dd>Select every file on this page</dd>
+<dt><kbd>Esc</kbd></dt><dd>Clear the selection</dd>
+<dt><kbd>M</kbd></dt><dd>Move the selection: choose the target folder</dd>
+<dt><kbd>T</kbd></dt><dd>Add a tag to the selection</dd>
+{% endblock %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "fragments/file_grid.html" as grid %}
 {% block title %}Library{% endblock %}
 {% block content %}
 <div class="library" id="library" data-folder-id="{{ selected.id if selected else '' }}">
@@ -73,40 +74,11 @@
       <noscript><button type="submit">Apply</button></noscript>
     </form>
 
-    <div class="selection-bar card" id="selection-bar">
-      <button type="button" data-select="page">Select page</button>
-      <button type="button" data-select="none">Clear</button>
-      <span><span id="selected-count">0</span> selected</span>
-      <form data-bulk="move" class="inline-form">
-        <select name="folder_id" id="bulk-folder" aria-label="Target folder">
-          {% for node in flat %}<option value="{{ node.id }}">{{ node.path }}</option>{% endfor %}
-        </select>
-        <button type="submit">Move</button>
-      </form>
-      <form data-bulk="tags/add" class="inline-form">
-        <input type="text" name="tag" placeholder="tag" list="tag-suggestions" autocomplete="off" aria-label="Tag to add" id="bulk-add-tag" data-autocomplete>
-        <button type="submit">Add tag</button>
-      </form>
-      <form data-bulk="tags/remove" class="inline-form">
-        <input type="text" name="tag" placeholder="tag" list="tag-suggestions" autocomplete="off" aria-label="Tag to remove" data-autocomplete>
-        <button type="submit">Remove tag</button>
-      </form>
-      <button type="button" data-bulk-discard class="danger">Discard</button>
-      <datalist id="tag-suggestions"></datalist>
-    </div>
+    {{ grid.selection_bar(flat) }}
 
     {% if result.files %}
     <ul class="grid library-grid" id="library-grid">
-      {% for f in result.files %}
-      <li class="tile library-tile" data-file-id="{{ f.id }}">
-        <label class="tile-check"><input type="checkbox" data-select-file="{{ f.id }}" aria-label="Select {{ f.title or f.original_filename or ('file ' ~ f.id) }}"></label>
-        <a href="/files/{{ f.id }}?{{ file_query }}">
-          {% if f.has_thumb %}<img src="/media/{{ f.id }}/thumb" alt="{{ f.original_filename or '' }}" loading="lazy" width="160" height="160">
-          {% else %}<span class="no-thumb">{{ f.media_kind.value }}</span>{% endif %}
-          <span class="tile-name">{{ f.title or f.original_filename or ("file " ~ f.id) }}</span>
-          <span class="tile-meta muted">{{ f.size_bytes | filesize }}{% if f.width %} · {{ f.width }}&times;{{ f.height }}{% endif %}</span>
-        </a>
-      </li>
+      {% for f in result.files %}{{ grid.tile(f, "/files/" ~ f.id ~ "?" ~ file_query) }}
       {% endfor %}
     </ul>
     {% if result.pages > 1 %}

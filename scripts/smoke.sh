@@ -683,4 +683,106 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json
 [[ "$code" == 400 ]] || fail "source with --exec accepted ($code)"
 echo "PASS extra_args with --exec refused by the API ($code)"
 
+# Phase 7: search. Files in Animals, Animals / Cats-<tag> and Other-<tag> with cat/dog tags;
+# the acceptance query returns exactly what an independent SQL query finds.
+page=$(curl -fsS "$BASE/search") || fail "GET /search"
+grep -q "Coming in phase" <<<"$page" && fail "/search is still a placeholder"
+grep -q 'class="nav-search"' <<<"$page" || fail "no search box in the navigation"
+search_args=()
+for f in "$media"/search/*; do search_args+=(-F "files=@$f"); done
+reply=$(curl -fsS "${search_args[@]}" "$BASE/api/uploads") || fail "POST search files"
+search_batch=$(json_get "$reply" 'd["batch_id"]')
+status=$(wait_batch "$search_batch")
+[[ $(json_get "$status" 'd["counts"]["new"]') == 7 ]] || fail "search upload: $status"
+sfile() { # sfile <original filename>: id of that file of the search batch
+    sql "SELECT id FROM files WHERE original_filename = '$1' AND staging_path LIKE 'staging/$search_batch/%'"
+}
+s_cat=$(sfile search00.png); s_sub=$(sfile search01.png); s_both=$(sfile search02.png)
+s_other=$(sfile search03.png); s_plain=$(sfile search04.png); s_pending=$(sfile search05.png)
+s_video=$(sfile clip.mp4)
+animals=$(curl -fs "$BASE/api/folders/resolve?path=Animals" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])' 2>/dev/null || true)
+[[ -n "$animals" ]] || animals=$(json_get "$(post_json /api/folders '{"name": "Animals"}')" 'd["id"]')
+cats_sub=$(json_get "$(post_json /api/folders "{\"name\": \"Cats $run_tag\", \"parent_id\": $animals}")" 'd["id"]')
+other=$(json_get "$(post_json /api/folders "{\"name\": \"Other $run_tag\"}")" 'd["id"]')
+archive_into() { # archive_into <folder_id> <tags json> <file ids...>
+    local folder=$1 tags=$2
+    shift 2
+    local ids
+    ids=$(IFS=,; echo "$*")
+    reply=$(post_json /api/review/archive "{\"file_ids\": [$ids], \"folder_id\": $folder, \"add_tags\": $tags}")
+    [[ $(json_get "$reply" 'd["ok"]') == True ]] || fail "archive $ids: $reply"
+}
+archive_into "$animals" '["cat"]' "$s_cat" "$s_video"
+archive_into "$cats_sub" '["cat"]' "$s_sub"
+archive_into "$animals" '["cat", "dog"]' "$s_both"
+archive_into "$other" '["cat"]' "$s_other"
+archive_into "$animals" '[]' "$s_plain"
+post_json "/api/files/$s_pending/tags" '{"name": "cat"}' >/dev/null  # pending: not archived
+
+search_ids() { # search_ids <query> [extra curl args]: sorted ids of every result page
+    python3 - "$BASE" "$1" <<'PY'
+import json, sys, urllib.parse, urllib.request
+base, query = sys.argv[1], sys.argv[2]
+ids, cursor = [], None
+while True:
+    params = {"q": query, "limit": 100}
+    if cursor:
+        params["cursor"] = cursor
+    with urllib.request.urlopen(f"{base}/api/search?{urllib.parse.urlencode(params)}") as r:
+        d = json.load(r)
+    ids += [i["id"] for i in d["items"]]
+    cursor = d["next_cursor"]
+    if not cursor:
+        break
+assert len(ids) == len(set(ids)) == d["total"], (len(ids), d["total"])
+print(",".join(str(i) for i in sorted(ids)))
+PY
+}
+query='cat -dog folder:"Animals" collected:2026-01-01..2026-12-31 type:image'
+got=$(search_ids "$query") || fail "search $query"
+expected=$(sql "WITH RECURSIVE sub(id) AS (SELECT $animals::bigint UNION ALL SELECT f.id FROM folders f JOIN sub ON f.parent_id = sub.id)
+SELECT string_agg(id::text, ',' ORDER BY id) FROM files f WHERE status = 'archived' AND media_kind = 'image'
+ AND folder_id IN (SELECT id FROM sub)
+ AND collected_at >= timestamptz '2026-01-01 00:00 Asia/Seoul' AND collected_at < timestamptz '2027-01-01 00:00 Asia/Seoul'
+ AND EXISTS (SELECT 1 FROM file_tags ft JOIN tags t ON t.id = ft.tag_id WHERE ft.file_id = f.id AND t.name = 'cat' AND NOT ft.removed)
+ AND NOT EXISTS (SELECT 1 FROM file_tags ft JOIN tags t ON t.id = ft.tag_id WHERE ft.file_id = f.id AND t.name = 'dog' AND NOT ft.removed)")
+[[ "$got" == "$expected" ]] || fail "search '$query' returned $got, SQL says $expected"
+for id in "$s_cat" "$s_sub"; do [[ ",$got," == *",$id,"* ]] || fail "$id missing from $got"; done
+for id in "$s_both" "$s_other" "$s_plain" "$s_pending" "$s_video"; do
+    [[ ",$got," == *",$id,"* ]] && fail "$id should not match"
+done
+echo "PASS search '$query' returns exactly the files SQL finds ($got; includes $s_cat in Animals and $s_sub in Animals / Cats $run_tag, excludes dog, Other, untagged, pending and video)"
+
+page=$(curl -fsS -G "$BASE/search" --data-urlencode "q=$query") || fail "GET /search?q=..."
+for want in 'name="tags_all" value="cat"' 'name="tags_none" value="dog"' 'name="collected_from" value="2026-01-01"' \
+    'name="collected_to" value="2026-12-31"' "<option value=\"$animals\" selected>Animals</option>" \
+    'name="type" value="image" checked' 'name="status" value="archived" checked'; do
+    grep -qF "$want" <<<"$page" || fail "filter panel lacks $want"
+done
+[[ $(grep -c 'class="tile library-tile' <<<"$page") == $(tr ',' '\n' <<<"$got" | wc -l) ]] || fail "result grid size"
+echo "PASS /search shows the same conditions in the filter panel and $(grep -c 'class="tile library-tile' <<<"$page") tiles"
+
+location=$(curl -s -o /dev/null -w '%{redirect_url}' -G "$BASE/search" --data-urlencode panel=1 \
+    --data-urlencode tags_all=cat --data-urlencode tags_none=dog --data-urlencode "folder=$animals" \
+    --data-urlencode collected_from=2026-01-01 --data-urlencode collected_to=2026-12-31 \
+    --data-urlencode type=image --data-urlencode type=video --data-urlencode status=archived)
+new_q=$(python3 -c 'import sys, urllib.parse as u; print(u.parse_qs(u.urlsplit(sys.argv[1]).query)["q"][0])' "$location")
+[[ "$new_q" == "$query type:video" ]] || fail "panel change redirected to $location"
+echo "PASS changing the panel (adding type video) redirects to $location"
+
+saved=$(post_json /api/saved-searches "{\"name\": \"Cats $run_tag\", \"query\": $(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$query")}")
+saved_id=$(json_get "$saved" 'd["id"]')
+reopened=$(search_ids "$(json_get "$(curl -fsS "$BASE/api/saved-searches/$saved_id")" 'd["query"]')")
+[[ "$reopened" == "$got" ]] || fail "saved search $saved_id returned $reopened, not $got"
+grep -q "data-saved-id=\"$saved_id\"" <<<"$(curl -fsS "$BASE/search")" || fail "saved search not in the sidebar"
+echo "PASS saved search $saved_id reopens with the same results ($reopened)"
+
+moved=$(json_get "$(post_json /api/folders "{\"name\": \"Moved $run_tag\"}")" 'd["id"]')
+reply=$(post_json /api/library/move "{\"file_ids\": [$got], \"folder_id\": $moved}")
+[[ $(json_get "$reply" 'd["ok"]') == True ]] || fail "bulk move of search results: $reply"
+in_moved=$(search_ids "folder=:\"Moved $run_tag\"")
+[[ "$in_moved" == "$got" ]] || fail "Moved $run_tag holds $in_moved, not $got"
+[[ $(search_ids "$query") == "" ]] || fail "results still in Animals after the move"
+echo "PASS bulk-moved the search results to Moved $run_tag ($in_moved)"
+
 echo "All smoke checks passed."

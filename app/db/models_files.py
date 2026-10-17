@@ -90,6 +90,8 @@ class File(Base):
         Index("ix_files_collected_at", "collected_at"),
         Index("ix_files_archived_at", "archived_at"),
         Index("ix_files_media_kind", "media_kind"),
+        Index("ix_files_status_archived_at_id", "status", text("archived_at DESC"), "id"),
+        Index("ix_files_status_collected_at_id", "status", text("collected_at DESC"), "id"),
         Index(
             "ix_files_video_duration",
             "duration_ms",

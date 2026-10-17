@@ -7,6 +7,7 @@ and reencoded.jpg (JPEG quality 60) for the perceptual duplicate checks.
 <dir>/review: 20 structured PNG images for the review queue checks.
 <dir>/review_pair: original.png, resized.png (50 percent) and variant.jpg (JPEG quality 60).
 <dir>/library: crawled.png, ingested with crawler tags for the phase 4 checks.
+<dir>/search: 6 structured PNG images and 1 MP4 video for the phase 7 search checks.
 Every run produces new content (random pixels and metadata), so repeated runs stay "new".
 """
 
@@ -57,10 +58,10 @@ def similar_set(directory: Path) -> None:
     img.save(directory / "reencoded.jpg", quality=60)
 
 
-def review_set(directory: Path, count: int = 20) -> None:
+def review_set(directory: Path, count: int = 20, prefix: str = "review") -> None:
     directory.mkdir(parents=True, exist_ok=True)
     for i in range(count):
-        structured(random.Random(os.urandom(16))).save(directory / f"review{i:02d}.png")
+        structured(random.Random(os.urandom(16))).save(directory / f"{prefix}{i:02d}.png")
 
 
 def review_pair(directory: Path) -> None:
@@ -117,6 +118,8 @@ def main() -> None:
     review_pair(root / "review_pair")
     (root / "library").mkdir(parents=True, exist_ok=True)
     image(root / "library" / "crawled.png")
+    review_set(root / "search", count=6, prefix="search")
+    video(root / "search" / "clip.mp4", seconds=2.0)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ from app.web.library import router as library_router
 from app.web.media import router as media_router
 from app.web.pages import router as pages_router
 from app.web.review import router as review_router
+from app.web.search import router as search_router
 from app.web.sources import router as sources_router
 
 
@@ -43,6 +44,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(media_router)
     app.include_router(review_router)
     app.include_router(library_router)
+    app.include_router(search_router)
     app.include_router(sources_router)
     app.include_router(pages_router)
     return app

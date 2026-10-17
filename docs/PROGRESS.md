@@ -169,3 +169,27 @@ Known gaps:
 - The worker needs network at startup to upgrade the tools; without it, it starts with the installed versions (or none, and tool runs fail with "No such file").
 - gallery-dl items without an id fall back to "<category>:<filename>", so two such files with the same stem from one category (for example two direct links named image.jpg on different hosts) share a remote id and the second is skipped.
 - Cookie files are passed to the tools as given; gallery-dl and yt-dlp may rewrite them (session cookies) inside DATA_DIR/secrets.
+
+## Phase 7 - 2026-10-17 - Search
+Built:
+- Migration 0006: table saved_searches; indexes files (status, archived_at DESC, id) and files (status, collected_at DESC, id). Model in app/db/models_search.py.
+- app/search/filters.py: SearchFilter (every section 12 filter and sort) and search(): tag conditions as EXISTS/NOT EXISTS on active rows by tag id, folder exact or subtree (subtree_ids), local-day date ranges in APP_TIMEZONE, case-insensitive text on title/file name/description, media kinds, source keys, statuses; sorts archived/collected/size asc and desc and random (md5 of seed and id); keyset pagination on (sort key, id) with an opaque cursor and the total count.
+- app/search/query.py: tokenizer (double quotes, escapes, positions), parse() into SearchFilter with errors at character positions and warnings for unknown tags, format_query() (canonical, round trip). app/search/params.py (q or filter fields), app/search/suggest.py (autocomplete), app/search/saved.py (saved searches), app/search/views.py (result items with folder paths, active tags, original deleted).
+- API: GET /api/search, /api/search/parse, /api/search/suggest; /api/saved-searches CRUD.
+- /search page: query box with autocomplete (keys, tags also after - ~ +, folder paths after folder: and folder=:, type/status/source values), filter panel synced with the query box both ways, results with the library grid component (fragments/file_grid.html, js/file_grid.js, now also used by /library) and its bulk move/tag/untag/discard, status badges and "original deleted", sort select, Next/First pages, saved searches sidebar (save, rename, delete, open), syntax errors and warnings. Search box in the navigation on every page. The URL holds q, sort and seed.
+- Tests: 470 in total (51 new; 3 network tests skipped by default): parser (every token type, quotes and escapes, negation, any-of, both folder forms, open/closed/single-day ranges, Korean and namespaced tags, 13 invalid tokens with positions, unknown-tag warnings, round trips, canonical form); builder (each filter alone and combined, folder subtree, removed tags never match, Asia/Seoul midnight boundaries); pagination over every sort with page sizes 1, 4 and 7 (ties and NULL archived_at included, random with a fixed seed), bad cursors; API (q, fields, warnings, pages, parse, suggest, saved searches CRUD and reopening); pages (panel shows the query's conditions, panel submit redirect, random seed in the URL, errors, pagination links, discarded tiles, sidebar, nav box); performance (slow): 50,000 files, 500 tags, two tags_all, one tags_none, folder subtree and a date range in about 50 ms locally (limit 300 ms).
+- scripts/smoke.sh phase 7: 7 uploaded files archived into Animals, a subfolder and another folder with cat/dog tags; the acceptance query returns exactly what an independent SQL query finds; /search shows the same conditions in the panel; a panel change redirects to the updated query; a saved search reopens with the same results; the results are bulk-moved and found in the new folder.
+
+Verify:
+- `make up`, archive a few images into a folder "Animals" (and a subfolder) with tags cat and dog, then open http://localhost:8000/search?q=cat%20-dog%20folder:%22Animals%22%20collected:2026-01-01..2026-12-31%20type:image: only cat images in Animals and its subfolders without dog appear, and the Filters panel shows cat / dog / Animals / the dates / image.
+- Tick "video" in the panel: the query box and the URL gain type:video. Type "-d" in the query box: tag suggestions appear; "folder:" lists folder paths.
+- Save the search in the sidebar, open another page, click it: the same results. Select results (X or the checkboxes), choose a folder, Move.
+- Type the query into the navigation search box on any page.
+- `make lint`, `make test` (`make test ARGS='-m "not slow"'` skips the timing tests), `scripts/smoke.sh`.
+
+Known gaps:
+- Cloud session: no Docker daemon, so checks ran natively against PostgreSQL 16 (migrations, 470 tests with 467 passed and 3 network skips, uvicorn + worker, full smoke.sh with SMOKE_LOCAL=1). Headless Chromium (Playwright from the sandbox's global Node install) checked the nav box, live query-to-panel sync and error display, panel-to-query/URL update, autocomplete (tags after - and ~, folder paths, keys, values; arrow keys, Enter, Tab), save/rename/open/delete of a saved search with identical results, / focus, J/X selection and a bulk move from the search grid. CI runs smoke.sh (API and HTML level) but no browser.
+- Keyset pages have Next and First links only; there is no "previous page" except the browser's back button.
+- The text filter is a substring match (ILIKE) without a trigram index; it scans the rows the other filters leave.
+- Result items load every folder path per page (fine for hundreds of folders).
+- Tags are matched by exact name; there is no namespace wildcard (for example every artist:*).

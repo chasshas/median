@@ -108,7 +108,7 @@ def clean_ingest(migrated_db: str, data_dir: Path) -> Iterator[None]:
     with psycopg.connect(migrated_db, autocommit=True) as conn:
         conn.execute(
             "TRUNCATE review_actions, file_tags, tags, ingest_events, file_sources, files,"
-            " job_runs, crawl_sources, procrastinate_jobs RESTART IDENTITY CASCADE"
+            " job_runs, crawl_sources, saved_searches, procrastinate_jobs RESTART IDENTITY CASCADE"
         )
         conn.execute("DELETE FROM folders WHERE NOT (parent_id IS NULL AND name = 'Inbox')")
     for name in ("staging", "archive", "thumbs", "trash", "work", "logs", "secrets", "addon_state"):

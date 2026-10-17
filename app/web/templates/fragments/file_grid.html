@@ -1,0 +1,43 @@
+{# The library grid component, shared by /library and /search: a selection bar with bulk
+   actions (move, add tag, remove tag, discard) and tiles with a selection checkbox.
+   app/web/static/js/file_grid.js drives both. #}
+{% macro selection_bar(folder_choices) %}
+<div class="selection-bar card" id="selection-bar">
+  <button type="button" data-select="page">Select page</button>
+  <button type="button" data-select="none">Clear</button>
+  <span><span id="selected-count">0</span> selected</span>
+  <form data-bulk="move" class="inline-form">
+    <select name="folder_id" id="bulk-folder" aria-label="Target folder">
+      {% for node in folder_choices %}<option value="{{ node.id }}">{{ node.path }}</option>{% endfor %}
+    </select>
+    <button type="submit">Move</button>
+  </form>
+  <form data-bulk="tags/add" class="inline-form">
+    <input type="text" name="tag" placeholder="tag" list="tag-suggestions" autocomplete="off" aria-label="Tag to add" id="bulk-add-tag" data-autocomplete>
+    <button type="submit">Add tag</button>
+  </form>
+  <form data-bulk="tags/remove" class="inline-form">
+    <input type="text" name="tag" placeholder="tag" list="tag-suggestions" autocomplete="off" aria-label="Tag to remove" data-autocomplete>
+    <button type="submit">Remove tag</button>
+  </form>
+  <button type="button" data-bulk-discard class="danger">Discard</button>
+  <datalist id="tag-suggestions"></datalist>
+</div>
+{% endmacro %}
+
+{% macro tile(f, href, folder_path=None, tags=None, original_deleted=False) %}
+{% set status = f.status.value %}
+<li class="tile library-tile{% if status != 'archived' %} status-{{ status }}{% endif %}" data-file-id="{{ f.id }}" data-status="{{ status }}">
+  <label class="tile-check"><input type="checkbox" data-select-file="{{ f.id }}" aria-label="Select {{ f.title or f.original_filename or ('file ' ~ f.id) }}"></label>
+  <a href="{{ href }}">
+    {% if f.has_thumb %}<img src="/media/{{ f.id }}/thumb" alt="{{ f.original_filename or '' }}" loading="lazy" width="160" height="160">
+    {% else %}<span class="no-thumb">{{ f.media_kind.value }}</span>{% endif %}
+    <span class="tile-name">{{ f.title or f.original_filename or ("file " ~ f.id) }}</span>
+    <span class="tile-meta muted">{{ f.size_bytes | filesize }}{% if f.width %} · {{ f.width }}&times;{{ f.height }}{% endif %}</span>
+    {% if status != "archived" %}<span class="badge badge-status">{{ {"pending_review": "pending review"}.get(status, status) }}</span>{% endif %}
+    {% if original_deleted %}<span class="badge badge-deleted">original deleted</span>{% endif %}
+    {% if folder_path %}<span class="tile-meta muted tile-folder" title="{{ folder_path }}">{{ folder_path }}</span>{% endif %}
+    {% if tags %}<span class="tile-tags">{% for t in tags[:6] %}<span class="chip chip-small">{{ t }}</span>{% endfor %}{% if tags | length > 6 %}<span class="muted">+{{ tags | length - 6 }}</span>{% endif %}</span>{% endif %}
+  </a>
+</li>
+{% endmacro %}
