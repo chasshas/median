@@ -56,18 +56,17 @@ async def test_review_badges_and_file_page(client: httpx.AsyncClient, db_conn) -
     await upload(client, "half.png", variant_resized(first))
     a, b = ids(db_conn)
 
-    review = (await client.get("/review")).text
+    review = (await client.get(f"/review/fragments/grid?ids={a},{b}")).text
     assert "similar to archived or pending (1)" in review
     assert f'href="/files/{a}"' in review and f'href="/files/{b}"' in review
     assert "similar to discarded" not in review
 
-    # Discard the first file (temporary: phase 3 builds the discard flow), upload a re-encode.
-    db_conn.execute(
-        "UPDATE files SET status = 'discarded', discarded_at = now() WHERE id = %s", (a,)
-    )
+    # Discard the first file, then upload a re-encode.
+    discarded = await client.post("/api/review/discard", json={"file_ids": [a]})
+    assert discarded.json()["ok"] is True
     await upload(client, "again.jpg", variant_jpeg(first))
     c = ids(db_conn)[-1]
-    review = (await client.get("/review")).text
+    review = (await client.get(f"/review/fragments/grid?ids={b},{c}")).text
     tile = review[review.index(f'data-file-id="{c}"') :]
     tile = tile[: tile.index("</li>")]
     assert "similar to discarded (1)" in tile
@@ -89,7 +88,7 @@ async def test_review_badges_and_file_page(client: httpx.AsyncClient, db_conn) -
     assert f'hx-post="/api/similar/{c}/{a}/image_phash/dismiss"' in page
 
     await client.post(f"/api/similar/{a}/{c}/image_phash/dismiss")
-    review = (await client.get("/review")).text
+    review = (await client.get(f"/review/fragments/grid?ids={c}")).text
     tile = review[review.index(f'data-file-id="{c}"') :]
     assert "similar to discarded" not in tile[: tile.index("</li>")]
     page = (await client.get(f"/files/{c}")).text

@@ -7,9 +7,8 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import database_ok, get_session
-from app.db.models_files import FileStatus
-from app.dedup.views import similar_badges, similar_files
-from app.ingest.views import file_detail, files_with_status, status_counts
+from app.dedup.views import similar_files
+from app.ingest.views import file_detail, status_counts
 from app.jobs import job_counts
 from app.web import templates
 
@@ -27,7 +26,7 @@ class NavItem:
 NAV: tuple[NavItem, ...] = (
     NavItem("/", "Dashboard", None),
     NavItem("/upload", "Upload", None),
-    NavItem("/review", "Review", None),  # simple grid until phase 3 builds the review flow
+    NavItem("/review", "Review", None),
     NavItem("/library", "Library", 4),
     NavItem("/search", "Search", 7),
     NavItem("/tags", "Tags", 4),
@@ -35,7 +34,6 @@ NAV: tuple[NavItem, ...] = (
     NavItem("/jobs", "Jobs", 5),
     NavItem("/settings", "Settings", 8),
 )
-REVIEW_GRID_LIMIT = 500
 
 
 def render(request: Request, template: str, **context: object) -> HTMLResponse:
@@ -57,23 +55,6 @@ async def dashboard(
 @router.get("/upload", response_class=HTMLResponse)
 async def upload_page(request: Request) -> HTMLResponse:
     return render(request, "upload.html")
-
-
-@router.get("/review", response_class=HTMLResponse)
-async def review_page(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session)]
-) -> HTMLResponse:
-    """Temporary grid of pending files; phase 3 replaces it with the review flow."""
-    pending = await files_with_status(session, FileStatus.pending_review, REVIEW_GRID_LIMIT)
-    return render(
-        request,
-        "review.html",
-        pending=pending,
-        badges=await similar_badges(session, [f.id for f in pending]),
-        processing=await files_with_status(session, FileStatus.processing, REVIEW_GRID_LIMIT),
-        errors=await files_with_status(session, FileStatus.error, REVIEW_GRID_LIMIT),
-        counts=await status_counts(session),
-    )
 
 
 def _coming_soon(item: NavItem) -> Callable[[Request], Awaitable[HTMLResponse]]:

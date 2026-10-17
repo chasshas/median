@@ -1,12 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Review{% endblock %}
 {% block content %}
-<h1>Review</h1>
-<p class="muted">Pending files ({{ counts.pending_review }}). The full review flow (archive, discard, compare) arrives in phase 3.</p>
-{% if processing %}<p class="muted">{{ counts.processing }} file(s) still processing.</p>{% endif %}
-{% if errors %}
-<section class="card errors">
+<div class="review-head">
+  <h1>Review</h1>
+  <nav class="tabs" aria-label="Review queues">
+    <a href="/review"{% if tab == "pending" %} aria-current="page"{% endif %}>Pending <span class="count">{{ counts.pending_review }}</span></a>
+    <a href="/review?tab=failed"{% if tab == "failed" %} aria-current="page"{% endif %}>Failed <span class="count" id="failed-count">{{ counts.error }}</span></a>
+  </nav>
+  {% if counts.processing %}<span class="muted">{{ counts.processing }} still processing</span>{% endif %}
+</div>
+
+{% if tab == "failed" %}
+<section class="card errors" id="failed">
   <h2>Failed ({{ counts.error }})</h2>
+  {% if errors %}
   <ul>
     {% for f in errors %}
     <li id="error-{{ f.id }}">
@@ -17,39 +24,91 @@
     </li>
     {% endfor %}
   </ul>
+  {% else %}<p class="muted">No failed files.</p>{% endif %}
 </section>
-{% endif %}
-{% if pending %}
-<ul class="grid" id="review-grid">
-  {% for f in pending %}
-  <li class="tile" data-file-id="{{ f.id }}">
-    <a href="/files/{{ f.id }}">
-      {% if f.has_thumb %}
-      <img src="/media/{{ f.id }}/thumb" alt="{{ f.original_filename or '' }}" loading="lazy" width="160" height="160">
-      {% else %}
-      <span class="no-thumb">{{ f.media_kind.value }}</span>
-      {% endif %}
-      <span class="tile-name">{{ f.original_filename or ("file " ~ f.id) }}</span>
-    </a>
-    {% set badge = badges.get(f.id) %}
-    {% if badge and (badge.kept or badge.discarded) %}
-    <div class="badges">
-      {% if badge.kept %}
-      <a class="badge badge-similar" data-similar-kind="kept"
-        href="{% if badge.kept | length == 1 %}/files/{{ badge.kept[0] }}{% else %}/files/{{ f.id }}#similar{% endif %}"
-        title="Visually similar to {{ badge.kept | length }} archived or pending file(s)">similar to archived or pending ({{ badge.kept | length }})</a>
-      {% endif %}
-      {% if badge.discarded %}
-      <a class="badge badge-discarded" data-similar-kind="discarded"
-        href="{% if badge.discarded | length == 1 %}/files/{{ badge.discarded[0] }}{% else %}/files/{{ f.id }}#similar{% endif %}"
-        title="Visually similar to {{ badge.discarded | length }} discarded file(s)">similar to discarded ({{ badge.discarded | length }})</a>
-      {% endif %}
-    </div>
-    {% endif %}
-  </li>
-  {% endfor %}
-</ul>
 {% else %}
-<p class="muted">Nothing to review. <a href="/upload">Upload files</a>.</p>
+<section id="review" class="review" data-queue-url="/api/review/queue{% if query %}?{{ query }}{% endif %}">
+  <details class="card review-filters"{% if query %} open{% endif %}>
+    <summary>Filters</summary>
+    <form method="get" action="/review" class="filter-form">
+      <fieldset>
+        <legend>Type</legend>
+        {% for kind in media_kinds %}
+        <label class="checkbox"><input type="checkbox" name="media_kind" value="{{ kind }}"{% if kind in filters.media_kinds %} checked{% endif %}> {{ kind }}</label>
+        {% endfor %}
+      </fieldset>
+      <label>Source
+        <select name="source_key">
+          <option value="">any</option>
+          {% for key in source_keys %}<option value="{{ key }}"{% if key in filters.source_keys %} selected{% endif %}>{{ key }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Batch <input type="text" name="batch" value="{{ filters.batch or '' }}" placeholder="batch id or run-N" size="20"></label>
+      <label>Similar files
+        <select name="has_similar">
+          <option value="">any</option>
+          <option value="true"{% if filters.has_similar == true %} selected{% endif %}>has similar</option>
+          <option value="false"{% if filters.has_similar == false %} selected{% endif %}>no similar</option>
+        </select>
+      </label>
+      <label>Similar to discarded
+        <select name="similar_to_discarded">
+          <option value="">any</option>
+          <option value="true"{% if filters.similar_to_discarded == true %} selected{% endif %}>yes</option>
+          <option value="false"{% if filters.similar_to_discarded == false %} selected{% endif %}>no</option>
+        </select>
+      </label>
+      <label>Order
+        <select name="order">
+          <option value="oldest"{% if filters.order == "oldest" %} selected{% endif %}>oldest collected first</option>
+          <option value="newest"{% if filters.order == "newest" %} selected{% endif %}>newest first</option>
+        </select>
+      </label>
+      <div class="actions"><button type="submit">Apply</button> <a href="/review">Reset</a></div>
+    </form>
+  </details>
+
+  <div class="review-toolbar card">
+    <div class="mode-switch" role="group" aria-label="View">
+      <button type="button" data-mode="single" aria-pressed="true">Single</button>
+      <button type="button" data-mode="grid" aria-pressed="false">Grid</button>
+    </div>
+    <label>Archive into
+      <select id="archive-folder">
+        {% for folder in folders %}<option value="{{ folder.id }}">{{ folder.path }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Tags <input type="text" id="archive-tags" placeholder="comma separated" size="24"></label>
+    <dl class="counters">
+      <dt>Remaining</dt><dd id="remaining">…</dd>
+      <dt>Decided this session</dt><dd id="decided">0</dd>
+      <dt>Selected</dt><dd id="selected-count">0</dd>
+    </dl>
+  </div>
+
+  <div id="review-stage" class="review-stage" tabindex="-1">
+    <p class="muted">Loading the queue…</p>
+  </div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+</section>
+<script type="module" src="{{ url_for('static', path='js/review.js') }}"></script>
 {% endif %}
+{% endblock %}
+{% block shortcuts %}
+<dt><kbd>J</kbd> / <kbd>→</kbd> <kbd>↓</kbd></dt><dd>Next file</dd>
+<dt><kbd>K</kbd> / <kbd>←</kbd> <kbd>↑</kbd></dt><dd>Previous file</dd>
+<dt><kbd>A</kbd></dt><dd>Archive (into the folder and with the tags in the toolbar)</dd>
+<dt><kbd>D</kbd></dt><dd>Discard</dd>
+<dt><kbd>S</kbd></dt><dd>Skip (no decision)</dd>
+<dt><kbd>C</kbd></dt><dd>Compare with a similar file (again: the next similar file)</dd>
+<dt><kbd>X</kbd></dt><dd>Select or unselect</dd>
+<dt><kbd>Shift</kbd>+<kbd>A</kbd> / <kbd>Shift</kbd>+<kbd>D</kbd></dt><dd>Archive / discard the selection</dd>
+<dt><kbd>U</kbd></dt><dd>Undo the last decision</dd>
+<dt><kbd>G</kbd></dt><dd>Switch between single and grid view</dd>
+<dt><kbd>Enter</kbd></dt><dd>Grid: open the focused file in single view</dd>
+<dt><kbd>1</kbd></dt><dd>Compare: keep left, discard right</dd>
+<dt><kbd>2</kbd></dt><dd>Compare: keep right, discard left</dd>
+<dt><kbd>B</kbd></dt><dd>Compare: keep both</dd>
+<dt><kbd>R</kbd></dt><dd>Compare: replace the archived right file with the left one</dd>
+<dt><kbd>Esc</kbd></dt><dd>Compare: back to single view</dd>
 {% endblock %}

@@ -61,6 +61,12 @@ async def defer_recompute_similar() -> int:
     return await recompute_similar.defer_async()
 
 
+async def defer_purge_trash() -> int:
+    from app.jobs.tasks import purge_trash
+
+    return await purge_trash.defer_async()
+
+
 async def job_counts(session: AsyncSession) -> dict[str, int]:
     """Number of jobs per status (todo, doing, succeeded, failed, ...); empty before migrate."""
     exists = await session.scalar(text("SELECT to_regclass('public.procrastinate_jobs')"))

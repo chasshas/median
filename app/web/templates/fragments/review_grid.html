@@ -1,0 +1,29 @@
+{# Grid tiles for the review queue, in the order the page asked for. #}
+{% for f in files %}
+<li class="tile review-tile" data-file-id="{{ f.id }}" tabindex="-1">
+  <div class="tile-body">
+    {% if f.has_thumb %}
+    <img src="/media/{{ f.id }}/thumb" alt="{{ f.original_filename or '' }}" loading="lazy" width="160" height="160">
+    {% else %}
+    <span class="no-thumb">{{ f.media_kind.value }}</span>
+    {% endif %}
+    <span class="tile-name">{{ f.original_filename or ("file " ~ f.id) }}</span>
+    <span class="tile-meta muted">{{ f.media_kind.value }}{% if f.width %} · {{ f.width }}&times;{{ f.height }}{% endif %} · {{ f.size_bytes | filesize }}</span>
+  </div>
+  {% set badge = badges.get(f.id) %}
+  {% if badge and (badge.kept or badge.discarded) %}
+  <div class="badges">
+    {% if badge.kept %}
+    <a class="badge badge-similar" data-similar-kind="kept" target="_blank" rel="noopener"
+      href="{% if badge.kept | length == 1 %}/files/{{ badge.kept[0] }}{% else %}/files/{{ f.id }}#similar{% endif %}"
+      title="Visually similar to {{ badge.kept | length }} archived or pending file(s)">similar to archived or pending ({{ badge.kept | length }})</a>
+    {% endif %}
+    {% if badge.discarded %}
+    <a class="badge badge-discarded" data-similar-kind="discarded" target="_blank" rel="noopener"
+      href="{% if badge.discarded | length == 1 %}/files/{{ badge.discarded[0] }}{% else %}/files/{{ f.id }}#similar{% endif %}"
+      title="Visually similar to {{ badge.discarded | length }} discarded file(s)">similar to discarded ({{ badge.discarded | length }})</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</li>
+{% endfor %}

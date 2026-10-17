@@ -107,9 +107,10 @@ def clean_ingest(migrated_db: str, data_dir: Path) -> Iterator[None]:
     """Empty the ingest tables, the job queue and the media directories before a test."""
     with psycopg.connect(migrated_db, autocommit=True) as conn:
         conn.execute(
-            "TRUNCATE file_tags, tags, ingest_events, file_sources, files, procrastinate_jobs"
-            " RESTART IDENTITY CASCADE"
+            "TRUNCATE review_actions, file_tags, tags, ingest_events, file_sources, files,"
+            " procrastinate_jobs RESTART IDENTITY CASCADE"
         )
+        conn.execute("DELETE FROM folders WHERE NOT (parent_id IS NULL AND name = 'Inbox')")
     for name in ("staging", "archive", "thumbs", "trash"):
         shutil.rmtree(data_dir / name, ignore_errors=True)
     yield

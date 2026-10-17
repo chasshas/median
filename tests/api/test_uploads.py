@@ -135,7 +135,7 @@ async def test_retry_api(
     await run_queued_jobs()
     (file_id, status) = db_conn.execute("SELECT id, status::text FROM files").fetchone()
     assert status == "error"
-    review = await client.get("/review")
+    review = await client.get("/review?tab=failed")
     assert f'hx-post="/api/files/{file_id}/retry"' in review.text
 
     monkeypatch.undo()

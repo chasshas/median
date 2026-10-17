@@ -63,3 +63,15 @@ async def recompute_similar() -> dict[str, int]:
         stats = await service.recompute_similar(sessionmaker)
     logger.info("recompute_similar finished: %s", stats.as_dict())
     return stats.as_dict()
+
+
+# Daily at 03:17 UTC (12:17 in Asia/Seoul). The worker's periodic deferrer queues it.
+@job_app.periodic(cron="17 3 * * *")
+@job_app.task(name="purge_trash", queue="maintenance", queueing_lock="purge_trash")
+async def purge_trash(timestamp: int | None = None) -> dict[str, int]:
+    from app.review.trash import run_purge_trash
+
+    settings = get_settings()
+    stats = await run_purge_trash(settings.database_url, get_paths(), settings.trash_retention_days)
+    logger.info("purge_trash finished: %s", stats.as_dict())
+    return stats.as_dict()

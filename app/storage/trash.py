@@ -20,3 +20,12 @@ def restore_from_trash(paths: DataPaths, sha_hex: str, ext: str | None, dest: Pa
 
 def in_trash(paths: DataPaths, sha_hex: str, ext: str | None) -> bool:
     return paths.trash_path(sha_hex, ext).exists()
+
+
+def purge_from_trash(paths: DataPaths, sha_hex: str, ext: str | None) -> bool:
+    """Delete a trashed original. Returns False when it was already gone."""
+    try:
+        paths.trash_path(sha_hex, ext).unlink()
+    except FileNotFoundError:
+        return False
+    return True

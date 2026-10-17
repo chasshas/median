@@ -1,0 +1,66 @@
+{# The current review item: the file large, details, sources, tags and similar files. #}
+{% set src = "/media/" ~ file.id ~ "/original" %}
+<article class="review-single" data-file-id="{{ file.id }}" data-media-kind="{{ file.media_kind.value }}"
+  data-status="{{ file.status.value }}" data-similar-ids="{{ similar | map(attribute='other_id') | join(',') }}">
+  <figure class="review-viewer">
+    {% if not available %}
+    <p class="bad">The original is not available.</p>
+    {% if file.has_thumb %}<img src="/media/{{ file.id }}/thumb" alt="">{% endif %}
+    {% elif file.media_kind.value == "image" %}
+    <img src="{{ src }}" alt="{{ file.original_filename or '' }}" decoding="async">
+    {% elif file.media_kind.value == "video" %}
+    <video src="{{ src }}" controls preload="metadata"{% if file.has_thumb %} poster="/media/{{ file.id }}/thumb"{% endif %}></video>
+    {% elif file.media_kind.value == "audio" %}
+    {% if file.has_thumb %}<img src="/media/{{ file.id }}/thumb" alt="Cover art" class="cover">{% endif %}
+    <audio src="{{ src }}" controls preload="metadata"></audio>
+    {% else %}
+    <div class="file-card">
+      <span class="file-card-ext">{{ (file.ext or "file") | upper }}</span>
+      <span>{{ file.mime or "unknown type" }}</span>
+      <a href="{{ src }}" target="_blank" rel="noopener">Open original</a>
+    </div>
+    {% endif %}
+  </figure>
+  <aside class="review-panel card">
+    <h2 class="review-name" title="{{ file.original_filename or '' }}">{{ file.title or file.original_filename or ("File " ~ file.id) }}</h2>
+    <dl class="meta">
+      <dt>Original name</dt><dd>{{ file.original_filename or "" }}</dd>
+      <dt>Size</dt><dd>{{ file.size_bytes | filesize }}</dd>
+      <dt>Type</dt><dd>{{ file.media_kind.value }}{% if file.ext %} · {{ file.ext }}{% endif %}</dd>
+      {% if file.width %}<dt>Dimensions</dt><dd>{{ file.width }} &times; {{ file.height }}</dd>{% endif %}
+      {% if file.duration_ms %}<dt>Duration</dt><dd>{{ file.duration_ms | duration }}</dd>{% endif %}
+      <dt>Collected</dt><dd>{{ file.collected_at | localtime }}</dd>
+      {% if file.description %}<dt>Description</dt><dd>{{ file.description }}</dd>{% endif %}
+    </dl>
+    <h3>Sources</h3>
+    <ul class="review-sources">
+      {% for s in detail.sources %}
+      <li>{{ s.source_key }}{% if s.remote_id %} · {{ s.remote_id }}{% endif %}
+        {% if s.url %} · <a href="{{ s.url }}" rel="noreferrer noopener" target="_blank">{{ s.url }}</a>{% endif %}</li>
+      {% else %}<li class="muted">none</li>
+      {% endfor %}
+    </ul>
+    <h3>Tags</h3>
+    {% if detail.tags %}
+    <ul class="tags review-tags">
+      {% for tag in detail.tags %}<li class="tag tag-{{ tag.origin }}" title="{{ tag.origin }} tag">{{ tag.name }}</li>{% endfor %}
+    </ul>
+    {% else %}<p class="muted">No tags.</p>{% endif %}
+    <h3>Similar files</h3>
+    {% if similar %}
+    <ul class="similar-strip">
+      {% for s in similar %}
+      <li data-other-id="{{ s.other_id }}" data-other-status="{{ s.status }}">
+        <button type="button" class="similar-pick" data-compare-id="{{ s.other_id }}" title="Compare (C)">
+          {% if s.thumb_url %}<img src="{{ s.thumb_url }}" alt="{{ s.original_filename or '' }}" loading="lazy" width="72" height="72">
+          {% else %}<span class="no-thumb">{{ s.media_kind }}</span>{% endif %}
+          <span class="status status-{{ s.status }}">{{ s.status | replace("_", " ") }}</span>
+          <span class="muted">d {{ s.distance }}</span>
+        </button>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">No similar files.</p>{% endif %}
+    <p class="review-links"><a href="/files/{{ file.id }}" target="_blank" rel="noopener">File page</a></p>
+  </aside>
+</article>

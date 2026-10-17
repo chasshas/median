@@ -3,6 +3,7 @@
 python -m app.cli import <directory> [--tags a,b] [--force] [--recursive]
 python -m app.cli rehash [--missing-only]
 python -m app.cli recompute-similar
+python -m app.cli purge-trash
 """
 
 import argparse
@@ -18,6 +19,7 @@ from app.ingest.origin import IngestOrigin
 from app.ingest.service import ingest
 from app.jobs import open_jobs
 from app.library.tags import split_tag_input
+from app.review.trash import run_purge_trash
 from app.storage import get_paths
 from app.storage.paths import new_upload_batch_id
 
@@ -80,6 +82,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser(
         "recompute-similar", help="rebuild similar pairs from stored hashes (current thresholds)"
     )
+    sub.add_parser(
+        "purge-trash", help="delete trash originals discarded more than TRASH_RETENTION_DAYS ago"
+    )
     args = parser.parse_args(argv)
     database_url = get_settings().database_url
 
@@ -90,6 +95,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "recompute-similar":
         print_stats("recompute-similar", asyncio.run(run_recompute_similar(database_url)).as_dict())
         return 0
+
+    if args.command == "purge-trash":
+        stats = asyncio.run(
+            run_purge_trash(database_url, get_paths(), get_settings().trash_retention_days)
+        )
+        print_stats("purge-trash", stats.as_dict())
+        return 1 if stats.errors else 0
 
     if args.command == "import":
         if not args.directory.is_dir():

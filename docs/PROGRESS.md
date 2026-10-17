@@ -70,3 +70,28 @@ Known gaps:
 - Ingest queries the image index by loading every stored pHash per new file (fine for single-user collections; a cached or BK-tree index can replace BruteForceIndex behind the same interface).
 - No compare view or keyboard flow yet (phase 3); a dismissed pair cannot be undismissed.
 - rehash/recompute-similar have no UI trigger and no job_runs record until phases 5 and 8.
+
+## Phase 3 - 2026-10-17 - Review queue
+Built:
+- Migration 0004: enum review_action_kind; table review_actions (file_id, action, previous_status, previous_folder_id, at, undone, plus group_id for replace and detail jsonb for exact undo); model in app/db/models_review.py.
+- app/review/service.py: archive (default Inbox, user tags), discard, discard_archived, replace (new file archived into the old one's folder with the union of active tags, old one discarded), compare_decision (keep left, keep right, keep both, replace; all or nothing), undo (newest non-undone action per file only, replace undone as a pair, refused with a message once the trash original is purged). All take lists, lock rows in id order, return per-file results and move originals after commit.
+- app/review/trash.py and the purge_trash Procrastinate periodic task (daily 03:17 UTC) plus python -m app.cli purge-trash. app/library/folders.py: Inbox lookup and folder display paths.
+- app/review/queue.py and GET /api/review/queue (media_kind, source_key, batch, has_similar, similar_to_discarded, status pending_review|error, order oldest|newest, keyset cursor). POST /api/review/archive, /discard, /discard-archived, /replace, /compare, /undo.
+- /review page: pending and failed tabs (failed: Retry buttons), filter form, archive folder and tags, counters (remaining, decided this session, selected); single view (image/video/audio/file card, side panel with name, size, dimensions, duration, collected date, sources with links, tags by origin, similar strip with statuses; next item preloaded), grid view (thumbnails with badges, click or X to select, Shift+click ranges), compare view (both files with dimensions, size, format and dates, larger resolution highlighted; keep left, keep right, keep both, replace). Keyboard map of section 13 plus G, Enter and the compare keys; shortcuts ignored while typing; toasts with Undo; failures keep the item and show the server's message. JS in app/web/static/js/review.js; fragments under /review/fragments/.
+- Tests: 155 in total (38 new): every decision and its undo with file locations on disk, tags restored, rollback moves nothing, reused staging names, undo after purge, batches with invalid files, compare choices and refusals, forced re-ingest blocking undo, discarded files still duplicates, purge retention (service, task and CLI), queue order, filters, cursor pages and bad parameters, API results, page shell, failed tab, single/grid/compare fragment rendering.
+- scripts/smoke.sh phase 3 checks (20 files decided through the API the keys call, files under archive/ and trash/, undo back to staging, compare fragment and keep left, exact copy of a discarded file dropped, variant shows the discarded match in the strip, purge and refused undo). Phase 1 and 2 checks now read the grid fragment, and the phase 2 discard uses the API.
+
+Verify:
+- `make up`, upload 20 images at /upload, open http://localhost:8000/review. Press A and D (keyboard only) until "Remaining" is 0; `make psql`: `SELECT status, folder_id, count(*) FROM files GROUP BY 1, 2;` shows the archived files in Inbox (folder 1); `docker compose exec web ls /data/archive /data/trash`.
+- Press U: the last file comes back on screen and its original is back under /data/staging.
+- Upload an image and then a 50 percent copy; with the copy on screen press C, then 1 (keep left, discard right).
+- Upload the discarded original again (dropped as an exact duplicate), then a re-encoded copy: its similar strip shows the original as "discarded".
+- `docker compose exec web python -m app.cli purge-trash`. `make lint`, `make test`, `scripts/smoke.sh`.
+
+Known gaps:
+- Cloud session: no Docker daemon, so checks ran natively against PostgreSQL 16 (migrations, 155 tests, uvicorn + worker + full smoke.sh with SMOKE_LOCAL=1). The keyboard flow ran in headless Chromium (Playwright from the sandbox's global Node install, not part of the repo): 20 files decided with A/D only (10 in Inbox under archive/, 10 under trash/), U twice moved files back to staging, typing "dada" in the tags field decided nothing, C then 1 on a resized copy, Shift+click and X selection with Shift+D and U, a rejected decision kept the item with the server's message, no console errors. CI runs smoke.sh (API level) but no browser.
+- The undo history and the toast Undo buttons live in the page; after a reload, decisions can be undone only through POST /api/review/undo with the action ids. There is no list of past decisions in the UI.
+- A file move that fails after commit (for example a full disk) is only logged; the row then points at a location without the file. An integrity check is phase 8.
+- Empty staging/<batch>/ directories stay after their files are decided.
+- The Pending and Failed tab counts are from page load; the "Remaining" counter is live.
+- purge_trash has no job_runs record or UI trigger until phase 5.

@@ -120,8 +120,9 @@ status=$(wait_batch "$batch")
 [[ $(json_get "$status" 'd["counts"]["new"]') == 4 ]] || fail "first upload: $status"
 echo "PASS upload of 3 images + 1 video: $(json_get "$status" 'd["counts"]')"
 
-review=$(curl -fsS "$BASE/review") || fail "GET /review"
-for id in $(json_get "$status" '" ".join(str(f["file_id"]) for f in d["files"])'); do
+batch_ids=$(json_get "$status" '",".join(str(f["file_id"]) for f in d["files"])')
+review=$(curl -fsS "$BASE/review/fragments/grid?ids=$batch_ids") || fail "GET review grid"
+for id in ${batch_ids//,/ }; do
     grep -q "src=\"/media/$id/thumb\"" <<<"$review" || fail "file $id missing from /review"
     code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/media/$id/thumb")
     [[ "$code" == 200 ]] || fail "thumbnail of file $id returned $code"
@@ -131,7 +132,7 @@ done
 pending_after=$(count_of pending_review)
 [[ $((pending_after - pending_before)) == 4 ]] ||
     fail "dashboard pending_review went $pending_before -> $pending_after"
-echo "PASS 4 files pending_review with thumbnails on /review; dashboard pending_review $pending_before -> $pending_after"
+echo "PASS 4 files pending_review with thumbnails in the review grid; dashboard pending_review $pending_before -> $pending_after"
 
 reply=$(curl -fsS "${upload_args[@]}" "$BASE/api/uploads") || fail "POST /api/uploads (again)"
 status2=$(wait_batch "$(json_get "$reply" 'd["batch_id"]')")
@@ -178,8 +179,8 @@ upload_one() { # upload_one <file>: upload, wait, print the batch JSON
     wait_batch "$(json_get "$reply" 'd["batch_id"]')"
 }
 
-review_tile() { # review_tile <file_id>: the /review grid tile of one file
-    curl -fsS "$BASE/review" | python3 -c '
+review_tile() { # review_tile <file_id>: the review grid tile of one file
+    curl -fsS "$BASE/review/fragments/grid?ids=$1" | python3 -c '
 import sys
 html, marker = sys.stdin.read(), f"data-file-id=\"{sys.argv[1]}\""
 start = html.find(marker)
@@ -201,8 +202,9 @@ similar_json=$(curl -fsS "$BASE/api/files/$half_id/similar") || fail "GET simila
     fail "similar of $half_id: $similar_json"
 echo "PASS 50 percent copy $half_id shows 'similar to archived or pending (1)' linking to /files/$first_id; API: $(json_get "$similar_json" 'd["similar"][0]')"
 
-sql "UPDATE files SET status = 'discarded', discarded_at = now() WHERE id = $first_id" ||
-    fail "discard $first_id"
+reply=$(curl -fsS -H 'Content-Type: application/json' -d "{\"file_ids\": [$first_id]}" \
+    "$BASE/api/review/discard") || fail "discard $first_id"
+[[ $(json_get "$reply" 'd["ok"]') == True ]] || fail "discard $first_id: $reply"
 status=$(upload_one "$similar/reencoded.jpg")
 [[ $(json_get "$status" 'd["counts"]["new"]') == 1 ]] || fail "re-encoded upload: $status"
 again_id=$(json_get "$status" 'd["files"][0]["file_id"]')
@@ -211,7 +213,7 @@ grep -q 'class="badge badge-discarded"' <<<"$tile" || fail "no discarded badge o
 grep -q "similar to discarded (1)" <<<"$tile" || fail "discarded badge text on $again_id: $tile"
 grep -q "href=\"/files/$first_id\"" <<<"$tile" || fail "discarded badge does not link to $first_id"
 grep -q "Similar files" <<<"$(curl -fsS "$BASE/files/$again_id")" || fail "file page section"
-echo "PASS after discarding $first_id (psql), re-encoded copy $again_id shows 'similar to discarded (1)'"
+echo "PASS after discarding $first_id, re-encoded copy $again_id shows 'similar to discarded (1)'"
 
 copy_args=(-F "files=@$similar/original.png" -F "files=@$similar/half.png" -F "files=@$similar/reencoded.jpg")
 reply=$(curl -fsS "${copy_args[@]}" "$BASE/api/uploads") || fail "POST exact copies"
@@ -226,5 +228,121 @@ recompute_out=$(in_app python -m app.cli recompute-similar) || fail "recompute-s
 pairs_now=$(sql "SELECT count(*) FROM similar_pairs WHERE $first_id IN (file_a_id, file_b_id)")
 [[ "$pairs_now" == 2 ]] || fail "pairs of $first_id after recompute: $pairs_now"
 echo "PASS $rehash_out; $recompute_out"
+
+# Phase 3: review queue, archive and discard, undo, compare, trash purge.
+post_json() { # post_json <path> <json>: POST JSON, print the response body
+    curl -fsS -H 'Content-Type: application/json' -d "$2" "$BASE$1" || fail "POST $1 $2"
+}
+
+data_dir=$(in_app python -c 'from app.config import get_settings; print(get_settings().data_dir)')
+
+where_is() { # where_is <file_id>: staging, archive, trash or missing (the original on disk)
+    local row sha ext staging
+    row=$(sql "SELECT encode(sha256, 'hex'), coalesce(ext, ''), coalesce(staging_path, '') FROM files WHERE id = $1")
+    IFS='|' read -r sha ext staging <<<"$row"
+    local suffix=${ext:+.$ext}
+    if [[ -n "$staging" ]] && in_app test -f "$data_dir/$staging"; then
+        echo staging
+    elif in_app test -f "$data_dir/archive/${sha:0:2}/${sha:2:2}/$sha$suffix"; then
+        echo archive
+    elif in_app test -f "$data_dir/trash/$sha$suffix"; then
+        echo trash
+    else
+        echo missing
+    fi
+}
+
+grep -q "js/review.js" <<<"$(curl -fsS "$BASE/review")" || fail "/review does not load review.js"
+review_args=()
+for f in "$media"/review/*; do review_args+=(-F "files=@$f"); done
+reply=$(curl -fsS "${review_args[@]}" "$BASE/api/uploads") || fail "POST 20 review files"
+review_batch=$(json_get "$reply" 'd["batch_id"]')
+status=$(wait_batch "$review_batch")
+[[ $(json_get "$status" 'd["counts"]["new"]') == 20 ]] || fail "20 review files: $status"
+queue=$(curl -fsS "$BASE/api/review/queue?batch=$review_batch&limit=7")
+[[ $(json_get "$queue" 'd["total"]') == 20 ]] || fail "queue total: $queue"
+queue_ids=$(json_get "$queue" '" ".join(str(i["id"]) for i in d["items"])')
+cursor=$(json_get "$queue" 'd["next_cursor"]')
+while [[ "$cursor" != None ]]; do
+    page=$(curl -fsS "$BASE/api/review/queue?batch=$review_batch&limit=7&cursor=$cursor")
+    queue_ids="$queue_ids $(json_get "$page" '" ".join(str(i["id"]) for i in d["items"])')"
+    cursor=$(json_get "$page" 'd["next_cursor"]')
+done
+read -ra queue_ids <<<"$queue_ids"
+[[ ${#queue_ids[@]} == 20 ]] || fail "queue pages returned ${#queue_ids[@]} ids"
+echo "PASS review queue of batch $review_batch: 20 files over 3 cursor pages (limit 7)"
+
+# The page's A and D keys call these endpoints, one file per key press.
+inbox_id=$(sql "SELECT id FROM folders WHERE parent_id IS NULL AND name = 'Inbox'")
+i=0
+for id in "${queue_ids[@]}"; do
+    if ((i % 2 == 0)); then action=archive; else action=discard; fi
+    reply=$(post_json "/api/review/$action" "{\"file_ids\": [$id]}")
+    [[ $(json_get "$reply" 'd["ok"]') == True ]] || fail "$action $id: $reply"
+    last_actions=$(json_get "$reply" 'd["action_ids"]')
+    i=$((i + 1))
+done
+i=0
+for id in "${queue_ids[@]}"; do
+    row=$(sql "SELECT status, coalesce(folder_id::text, '') FROM files WHERE id = $id")
+    loc=$(where_is "$id")
+    if ((i % 2 == 0)); then
+        [[ "$row" == "archived|$inbox_id" && "$loc" == archive ]] || fail "file $id: $row, $loc"
+    else
+        [[ "$row" == "discarded|" && "$loc" == trash ]] || fail "file $id: $row, $loc"
+    fi
+    i=$((i + 1))
+done
+left=$(curl -fsS "$BASE/api/review/queue?batch=$review_batch")
+[[ $(json_get "$left" 'd["total"]') == 0 ]] || fail "queue not empty: $left"
+echo "PASS 20 decisions: 10 archived into Inbox (originals under archive/), 10 discarded (under trash/), queue empty"
+
+last_id=${queue_ids[19]}
+reply=$(post_json /api/review/undo "{\"action_ids\": $last_actions}")
+[[ $(json_get "$reply" 'd["results"][0]["status"]') == pending_review ]] || fail "undo: $reply"
+[[ $(where_is "$last_id") == staging ]] || fail "undo: file $last_id is in $(where_is "$last_id")"
+again=$(post_json /api/review/undo "{\"action_ids\": $last_actions}")
+[[ $(json_get "$again" 'd["ok"]') == False ]] || fail "second undo: $again"
+reply=$(post_json /api/review/archive "{\"file_ids\": [$last_id]}")
+[[ $(where_is "$last_id") == archive ]] || fail "re-archive $last_id"
+echo "PASS undo of the last discard moved file $last_id back to staging (pending_review); a second undo is refused: $(json_get "$again" 'd["results"][0]["error"]')"
+
+pair=$media/review_pair
+status=$(upload_one "$pair/original.png")
+orig_id=$(json_get "$status" 'd["files"][0]["file_id"]')
+status=$(upload_one "$pair/resized.png")
+resized_id=$(json_get "$status" 'd["files"][0]["file_id"]')
+compare=$(curl -fsS "$BASE/review/fragments/compare?left=$resized_id&right=$orig_id") ||
+    fail "compare fragment"
+grep -q "data-left-id=\"$resized_id\" data-right-id=\"$orig_id\"" <<<"$compare" || fail "compare ids"
+grep -q "class=\"compare-side larger\" data-file-id=\"$orig_id\"" <<<"$compare" ||
+    fail "the original is not highlighted as larger"
+grep -q '320 &times; 240' <<<"$compare" && grep -q '640 &times; 480' <<<"$compare" ||
+    fail "compare dimensions"
+reply=$(post_json /api/review/compare \
+    "{\"file_id\": $resized_id, \"other_id\": $orig_id, \"choice\": \"keep_left\"}")
+[[ $(where_is "$resized_id") == archive && $(where_is "$orig_id") == trash ]] ||
+    fail "keep left, discard right: $reply"
+echo "PASS compare shows resized $resized_id beside original $orig_id (larger highlighted); keep left, discard right: $(json_get "$reply" '[(r["file_id"], r["status"]) for r in d["results"]]')"
+
+status=$(upload_one "$pair/original.png")
+[[ $(json_get "$status" 'd["counts"]["duplicate_exact"]') == 1 ]] || fail "copy of discarded: $status"
+status=$(upload_one "$pair/variant.jpg")
+variant_id=$(json_get "$status" 'd["files"][0]["file_id"]')
+single=$(curl -fsS "$BASE/review/fragments/single?file_id=$variant_id")
+strip=$(python3 -c 'import sys; h = sys.stdin.read(); print(h[h.find("similar-strip"):])' <<<"$single")
+grep -q "data-other-id=\"$orig_id\" data-other-status=\"discarded\"" <<<"$strip" ||
+    fail "similar strip of $variant_id lacks discarded $orig_id"
+echo "PASS exact copy of discarded $orig_id dropped (duplicate_exact); variant $variant_id shows it in the similar strip as discarded"
+
+reply=$(post_json /api/review/discard "{\"file_ids\": [$variant_id]}")
+discard_actions=$(json_get "$reply" 'd["action_ids"]')
+sql "UPDATE files SET discarded_at = now() - interval '30 days' WHERE id = $variant_id" >/dev/null
+purge_out=$(in_app python -m app.cli purge-trash) || fail "purge-trash: $purge_out"
+[[ $(where_is "$variant_id") == missing ]] || fail "purge left $variant_id in $(where_is "$variant_id")"
+[[ $(where_is "$orig_id") == trash ]] || fail "purge removed the recent discard $orig_id"
+reply=$(post_json /api/review/undo "{\"action_ids\": $discard_actions}")
+grep -q "no longer in the trash" <<<"$reply" || fail "undo after purge: $reply"
+echo "PASS $purge_out; undo after purge refused: $(json_get "$reply" 'd["results"][0]["error"]')"
 
 echo "All smoke checks passed."

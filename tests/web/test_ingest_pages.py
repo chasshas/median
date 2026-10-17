@@ -32,9 +32,9 @@ async def test_review_dashboard_and_file_page(
     images = [(f"img{i}.png", png_bytes((i * 60, 10, 10))) for i in range(3)]
     await _upload(client, [*images, ("v.mp4", video)])
 
-    review = (await client.get("/review")).text
     ids = [r[0] for r in db_conn.execute("SELECT id FROM files ORDER BY id").fetchall()]
     assert len(ids) == 4
+    review = (await client.get(f"/review/fragments/grid?ids={','.join(map(str, ids))}")).text
     for file_id in ids:
         assert f'src="/media/{file_id}/thumb"' in review
 

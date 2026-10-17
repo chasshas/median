@@ -4,6 +4,8 @@
 <dir>/import: 2 images, a video, an MP3, a text file and a corrupt JPEG (one in a subdir).
 <dir>/similar: original.png (random shapes, gradient and text), half.png (resized to 50 percent)
 and reencoded.jpg (JPEG quality 60) for the perceptual duplicate checks.
+<dir>/review: 20 structured PNG images for the review queue checks.
+<dir>/review_pair: original.png, resized.png (50 percent) and variant.jpg (JPEG quality 60).
 Every run produces new content (random pixels and metadata), so repeated runs stay "new".
 """
 
@@ -54,6 +56,22 @@ def similar_set(directory: Path) -> None:
     img.save(directory / "reencoded.jpg", quality=60)
 
 
+def review_set(directory: Path, count: int = 20) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    for i in range(count):
+        structured(random.Random(os.urandom(16))).save(directory / f"review{i:02d}.png")
+
+
+def review_pair(directory: Path) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    img = structured(random.Random(os.urandom(16)))
+    img.save(directory / "original.png")
+    img.resize((img.width // 2, img.height // 2), Image.Resampling.LANCZOS).save(
+        directory / "resized.png"
+    )
+    img.save(directory / "variant.jpg", quality=60)
+
+
 def video(path: Path, seconds: float = 4.0) -> None:
     subprocess.run(
         [
@@ -94,6 +112,8 @@ def main() -> None:
     (imports / "notes.txt").write_text(f"notes {uuid.uuid4()}\n")
     (imports / "broken.jpg").write_bytes(b"\xff\xd8\xff" + os.urandom(64))
     similar_set(root / "similar")
+    review_set(root / "review")
+    review_pair(root / "review_pair")
 
 
 if __name__ == "__main__":

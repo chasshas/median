@@ -1,0 +1,43 @@
+{# Compare mode: the current pending file (left) beside one similar file (right). #}
+{% macro side(f, label, position) %}
+<div class="compare-side{% if larger == position %} larger{% endif %}" data-file-id="{{ f.id }}" data-status="{{ f.status.value }}">
+  <h3>{{ label }} <span class="status status-{{ f.status.value }}">{{ f.status.value | replace("_", " ") }}</span>
+    {% if larger == position %}<span class="larger-badge">larger resolution</span>{% endif %}</h3>
+  <figure class="compare-viewer">
+    {% set src = "/media/" ~ f.id ~ "/original" %}
+    {% if not available[f.id] %}
+    {% if f.has_thumb %}<img src="/media/{{ f.id }}/thumb" alt="">{% endif %}
+    <figcaption class="muted">Original not available; showing the thumbnail.</figcaption>
+    {% elif f.media_kind.value == "image" %}<img src="{{ src }}" alt="{{ f.original_filename or '' }}">
+    {% elif f.media_kind.value == "video" %}<video src="{{ src }}" controls preload="metadata" muted></video>
+    {% elif f.media_kind.value == "audio" %}<audio src="{{ src }}" controls preload="metadata"></audio>
+    {% else %}<a href="{{ src }}" target="_blank" rel="noopener">Open original</a>
+    {% endif %}
+  </figure>
+  <dl class="meta">
+    <dt>Name</dt><dd><a href="/files/{{ f.id }}" target="_blank" rel="noopener">{{ f.original_filename or ("file " ~ f.id) }}</a></dd>
+    <dt>Dimensions</dt><dd class="dims">{% if f.width %}{{ f.width }} &times; {{ f.height }}{% else %}unknown{% endif %}</dd>
+    {% if f.duration_ms %}<dt>Duration</dt><dd>{{ f.duration_ms | duration }}</dd>{% endif %}
+    <dt>File size</dt><dd>{{ f.size_bytes | filesize }}</dd>
+    <dt>Format</dt><dd>{{ f.ext or "?" }}{% if f.mime %} ({{ f.mime }}){% endif %}</dd>
+    <dt>Collected</dt><dd>{{ f.collected_at | localtime }}</dd>
+    {% if f.archived_at %}<dt>Archived</dt><dd>{{ f.archived_at | localtime }}</dd>{% endif %}
+    {% if f.discarded_at %}<dt>Discarded</dt><dd>{{ f.discarded_at | localtime }}</dd>{% endif %}
+  </dl>
+</div>
+{% endmacro %}
+{% set rs = right.status.value %}
+<section class="review-compare" data-left-id="{{ left.id }}" data-right-id="{{ right.id }}" data-right-status="{{ rs }}">
+  <div class="compare-sides">
+    {{ side(left, "Left: current", "left") }}
+    {{ side(right, "Right: similar", "right") }}
+  </div>
+  {% if pair %}<p class="muted compare-distance">{{ "image pHash" if pair.method == "image_phash" else "video frames" }}, distance {{ pair.distance }}</p>{% endif %}
+  <div class="compare-actions">
+    <button type="button" data-choice="keep_left"{% if rs not in ("pending_review", "archived", "discarded") %} disabled{% endif %}><kbd>1</kbd> Keep left, discard right</button>
+    <button type="button" data-choice="keep_right"{% if rs not in ("pending_review", "archived") %} disabled{% endif %}><kbd>2</kbd> Keep right, discard left</button>
+    <button type="button" data-choice="keep_both"{% if rs not in ("pending_review", "archived") %} disabled{% endif %}><kbd>B</kbd> Keep both</button>
+    {% if rs == "archived" %}<button type="button" data-choice="replace"><kbd>R</kbd> Replace right with left</button>{% endif %}
+    <button type="button" data-compare-close><kbd>Esc</kbd> Back</button>
+  </div>
+</section>
