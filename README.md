@@ -29,6 +29,8 @@ Perceptual duplicates: `python -m app.cli rehash [--missing-only]` recomputes im
 
 Review: open http://localhost:8000/review and press `?` for the keyboard map (J/K move, A archive, D discard, S skip, C compare, X select, Shift+A/Shift+D for the selection, U undo, G grid). Discarded originals stay in `trash/` for `TRASH_RETENTION_DAYS` (default 7) so a discard can be undone; the worker purges older ones daily, and `python -m app.cli purge-trash` does it on demand.
 
+Crawlers: /sources creates sources for the built-in add-ons (yt-dlp for video sites, gallery-dl for image galleries, direct links, demo) or your own (see [docs/ADDONS.md](docs/ADDONS.md)). The worker installs or upgrades yt-dlp and gallery-dl in `DATA_DIR/tools/venv` each time it starts (versions in `DATA_DIR/tools/versions.json`); `python -m app.cli tools` does it on demand.
+
 Media and state live in the `media-data` volume (mounted at `DATA_DIR`, default `/data`), and the database lives in `pgdata`. `docker-compose.override.yml` is for development: it bind-mounts the source and reloads on changes. For a deployment, leave it out: `docker compose -f docker-compose.yml up -d`.
 
 ## Phases
@@ -41,9 +43,9 @@ The project is built in ten phases, 0 to 9. The scope of each phase after 0 is p
 | 1 | Ingest service, storage layout, upload page, exact duplicates (done) |
 | 2 | Perceptual hashes and similar-file detection (done) |
 | 3 | Review: archive, discard, undo, trash (done) |
-| 4 | Library: folders, tags, file page |
-| 5 | Crawler add-on framework, sources, jobs, scheduling |
-| 6 | Built-in add-ons (yt-dlp, gallery-dl) |
+| 4 | Library: folders, tags, file page (done) |
+| 5 | Crawler add-on framework, sources, jobs, scheduling (done) |
+| 6 | Built-in add-ons (yt-dlp, gallery-dl, direct links) (done) |
 | 7 | Search and saved searches |
 | 8 | Operations: auth, backup, integrity checks, settings, tool updates |
 | 9 | Hardening and polish |

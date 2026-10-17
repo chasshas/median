@@ -7,6 +7,7 @@ dependencies = [
     "alembic>=1.20.0",
     "croniter>=6.2.4",
     "fastapi>=0.143.3",
+    "httpx>=0.28.1",
     "imagehash>=4.3.2",
     "jinja2>=3.1.6",
     "numpy>=2.5.4",
@@ -30,10 +31,12 @@ module-root = ""
 
 [project.entry-points."media_archive.addons"]
 demo = "app.addons.demo:DemoAddon"
+direct = "app.addons.direct:DirectAddon"
+gallerydl = "app.addons.gallerydl:GallerydlAddon"
+ytdlp = "app.addons.ytdlp:YtdlpAddon"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.17.1",

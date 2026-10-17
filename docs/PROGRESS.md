@@ -146,3 +146,26 @@ Known gaps:
 - Runs of other kinds (rehash, purge_trash, ...) still do not write job_runs rows; that comes with the settings and maintenance work in phase 8.
 - Cancelling or the runtime limit cannot interrupt blocking (non-async) code inside an add-on; such an add-on stops at its next await.
 - The jobs page shows the newest 100 runs without paging; old job logs are never deleted.
+
+## Phase 6 - 2026-10-17 - Built-in crawler add-ons
+Built:
+- Crawler tool venv: app/crawl/tools.py (tool_path, ensure_tools, versions.json), app/worker.py (the worker's entry point: install or upgrade yt-dlp[default] and gallery-dl in DATA_DIR/tools/venv, then exec the procrastinate worker), python -m app.cli tools. Dockerfile copies Deno 2.9.7 from denoland/deno:bin-2.9.7. run_subprocess passes proxy and CA bundle variables.
+- app/crawl/safety.py: extra_args denylists for yt-dlp and gallery-dl that also catch abbreviations, "=value" forms and short option clusters; URL checks. app/crawl/watch.py: run_while_polling, LineTail, StableFiles.
+- Add-ons (entry points): ytdlp (app/addons/ytdlp.py: archive rebuilt from the database before each run, emits from done.tsv every 2 s while yt-dlp runs, tags + categories + uploader:<name>, exit 101 and "error after files" count as success), gallerydl (app/addons/gallerydl.py: emits files whose sidecar exists and whose size was stable for 2 s, remote ids with filename fallback, tag_fields with namespaces and nested fields), direct (app/addons/direct.py: httpx streaming, Content-Disposition, size limit, known URLs skipped without a request).
+- docs/ADDONS.md: built-in add-ons, remote_id/tags/metadata rules, running programs safely, testing with fake executables, a complete single-file example (checked by loading it and ingesting two files).
+- Tests: 416 in total (186 new): fake yt-dlp and gallery-dl executables with slow, grow, partial, no-sidecar and failing modes; ytdlp (archive from the database after losing the state dir, emission while running, tags and uploader namespace, warning after a non-zero exit, failure without files, max_items exit 101, switches); gallerydl (stable size, partial files, remote id fallback, tag_fields lists/strings/nested, emission while running, missing sidecar, recrawl skip); direct (local HTTP server: two images, Content-Disposition, size limit by header and by stream, known URL without a request); every denied option alone, with a value and in "=value" form, plus abbreviations and clusters; tools venv and worker entry point; network tests (skipped by default).
+- scripts/smoke.sh phase 6: tool versions (and not importable in the app venv), Deno in the image, a ytdlp source ingesting a video and downloading nothing on the second run, "[debug] JS runtimes: deno-..." in the job and worker logs, a gallerydl source ingesting 2 images with tags from tag_fields, a direct source ingesting 2 images, --exec refused (400).
+
+Verify:
+- `make up`; `make logs` shows "crawler tools: {...}" from the worker; `docker compose exec worker cat /data/tools/versions.json`.
+- /sources: create "yt-dlp (video sites)" with one short video URL you may download and extra args `--verbose`; Run now. The run shows new 1, the file in /review has the video's tags and `uploader:<name>`, the run log has `[debug] JS runtimes: deno-2.9.7`. Run now again: emitted 0, the log says "has already been recorded in the archive".
+- A "gallery-dl (image galleries)" source with one gallery URL: its images arrive with tags from tag_fields. A "Direct links" source with two image URLs: both arrive.
+- With real URLs: `make test ARGS="-m network tests/crawl/test_network.py"` with MEDIAN_NET_YTDLP_URL, MEDIAN_NET_GALLERYDL_URL and MEDIAN_NET_DIRECT_URLS set (add them to the web service environment or pass `-e` through `docker compose run`).
+- `make lint`, `make test`, `scripts/smoke.sh`.
+
+Known gaps:
+- The acceptance checks with real sites need URLs from the user; this session verified the add-ons with the real tools against local media only (smoke.sh locally and in CI). The network tests ran against that local server: gallery-dl and direct passed, ytdlp passed up to its uploader-tag assertion, which needs a real site (yt-dlp's generic extractor has no uploader).
+- Cloud session: no Docker daemon. Checks ran natively against PostgreSQL 16 with the tools installed by python -m app.cli tools into a local DATA_DIR and Deno 2.9.7 from PyPI; CI builds the image with the Deno stage.
+- The worker needs network at startup to upgrade the tools; without it, it starts with the installed versions (or none, and tool runs fail with "No such file").
+- gallery-dl items without an id fall back to "<category>:<filename>", so two such files with the same stem from one category (for example two direct links named image.jpg on different hosts) share a remote id and the second is skipped.
+- Cookie files are passed to the tools as given; gallery-dl and yt-dlp may rewrite them (session cookies) inside DATA_DIR/secrets.

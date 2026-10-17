@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from app.crawl.procs import TAIL_LINES, run_subprocess
+from app.crawl.procs import PASSTHROUGH_VARIABLES, TAIL_LINES, run_subprocess
 
 
 @pytest.fixture
@@ -88,6 +88,9 @@ async def test_string_args_are_refused(job_log, tmp_path: Path) -> None:
 async def test_environment_is_limited(job_log, tmp_path: Path, monkeypatch) -> None:
     log, _ = job_log
     monkeypatch.setenv("MEDIAN_SECRET_TOKEN", "do-not-leak")
+    for name in PASSTHROUGH_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
     home = tmp_path / "state"
     home.mkdir()
     result = await run_subprocess(
@@ -102,7 +105,8 @@ async def test_environment_is_limited(job_log, tmp_path: Path, monkeypatch) -> N
 
     env = json.loads(result.tail[-1])
     env.pop("LC_CTYPE", None)  # macOS-style injection by Python itself, if any
-    assert set(env) == {"PATH", "LANG", "HOME", "EXTRA"}
+    assert set(env) == {"PATH", "LANG", "HOME", "HTTPS_PROXY", "EXTRA"}
+    assert env["HTTPS_PROXY"] == "http://proxy.example:3128"
     assert env["HOME"] == str(home)
     assert env["EXTRA"] == "1"
     assert env["PATH"] == os.environ["PATH"]

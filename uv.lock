@@ -489,6 +489,7 @@ dependencies = [
     { name = "alembic" },
     { name = "croniter" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "imagehash" },
     { name = "jinja2" },
     { name = "numpy" },
@@ -504,7 +505,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -515,6 +515,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.20.0" },
     { name = "croniter", specifier = ">=6.2.4" },
     { name = "fastapi", specifier = ">=0.143.3" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "imagehash", specifier = ">=4.3.2" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "numpy", specifier = ">=2.5.4" },
@@ -530,7 +531,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.28.1" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "ruff", specifier = ">=0.17.1" },

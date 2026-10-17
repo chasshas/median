@@ -7,6 +7,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.addons.demo import DemoAddon
+from app.addons.direct import DirectAddon
+from app.addons.gallerydl import GallerydlAddon
+from app.addons.ytdlp import YtdlpAddon
 from app.crawl.base import Addon, CrawlContext, SecretFile
 from app.crawl.registry import Registry
 
@@ -81,6 +84,15 @@ class FailingAddon(Addon):
 
 def make_registry() -> Registry:
     registry = Registry()
-    for addon in (DemoAddon, EveryFieldAddon, SleeperAddon, StubbornAddon, FailingAddon):
+    for addon in (
+        DemoAddon,
+        EveryFieldAddon,
+        SleeperAddon,
+        StubbornAddon,
+        FailingAddon,
+        YtdlpAddon,
+        GallerydlAddon,
+        DirectAddon,
+    ):
         registry.add(addon, f"tests {addon.__name__}")
     return registry

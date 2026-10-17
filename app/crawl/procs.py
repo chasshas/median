@@ -16,13 +16,27 @@ KILL_GRACE_SECONDS = 2.0
 DRAIN_SECONDS = 5.0
 
 
+PASSTHROUGH_VARIABLES = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "REQUESTS_CA_BUNDLE",
+)
+
+
 def subprocess_env(home: Path, extra: Mapping[str, str] | None = None) -> dict[str, str]:
-    """PATH, LANG and HOME (the source's state_dir), plus explicitly passed variables."""
+    """PATH, LANG, HOME (the source's state_dir), the proxy and CA bundle variables when the
+    worker has them, plus explicitly passed variables."""
     env = {
         "PATH": os.environ.get("PATH", os.defpath),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
         "HOME": str(home),
     }
+    env.update({k: os.environ[k] for k in PASSTHROUGH_VARIABLES if k in os.environ})
     env.update(extra or {})
     return env
 

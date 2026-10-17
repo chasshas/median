@@ -1,5 +1,7 @@
 # One image for the web and worker services.
 FROM ghcr.io/astral-sh/uv:0.11.32 AS uv
+# JavaScript runtime for yt-dlp (YouTube needs it); only the binary is copied.
+FROM denoland/deno:bin-2.9.7 AS deno
 
 FROM python:3.12-slim
 
@@ -8,6 +10,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv /uv /uvx /bin/
+COPY --from=deno /deno /usr/local/bin/deno
 
 # The venv lives outside /app so the dev bind mount of the code does not hide it.
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \

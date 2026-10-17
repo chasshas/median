@@ -46,7 +46,9 @@ services:
 
   worker:
     <<: *app
-    command: ["procrastinate", "--app=app.jobs.app.job_app", "--log-level=info", "worker", "--concurrency=4"]
+    # Installs or upgrades yt-dlp and gallery-dl in DATA_DIR/tools/venv, then runs the
+    # procrastinate worker with these options.
+    command: ["python", "-m", "app.worker", "--concurrency=4"]
 
 volumes:
   pgdata:

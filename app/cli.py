@@ -4,6 +4,7 @@ python -m app.cli import <directory> [--tags a,b] [--force] [--recursive]
 python -m app.cli rehash [--missing-only]
 python -m app.cli recompute-similar
 python -m app.cli purge-trash
+python -m app.cli tools [--no-upgrade]
 """
 
 import argparse
@@ -13,6 +14,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from app.config import get_settings
+from app.crawl.tools import ensure_tools
 from app.db.engine import job_sessionmaker
 from app.dedup import service as dedup
 from app.ingest.origin import IngestOrigin
@@ -85,7 +87,17 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser(
         "purge-trash", help="delete trash originals discarded more than TRASH_RETENTION_DAYS ago"
     )
+    tools = sub.add_parser(
+        "tools", help="install or upgrade yt-dlp and gallery-dl in DATA_DIR/tools/venv"
+    )
+    tools.add_argument(
+        "--no-upgrade", action="store_true", help="only install when the venv is missing"
+    )
     args = parser.parse_args(argv)
+    if args.command == "tools":
+        versions = ensure_tools(get_paths(), upgrade=not args.no_upgrade)
+        print_stats("tools", versions)
+        return 1 if versions.get("error") else 0
     database_url = get_settings().database_url
 
     if args.command == "rehash":

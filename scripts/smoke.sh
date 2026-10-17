@@ -2,7 +2,8 @@
 # Acceptance smoke test against a running stack (after make up).
 # Usage: scripts/smoke.sh [base_url]. COMPOSE selects the compose command (default "docker compose").
 # SMOKE_LOCAL=1 runs app commands on this machine instead of in the web container (cloud sessions);
-# then SMOKE_WORKER_LOG names the worker's log file and SQL runs through psql "$DATABASE_URL".
+# then SMOKE_WORKER_LOG names the worker's log file and SQL runs through psql "$DATABASE_URL",
+# and the phase 6 media server runs here too.
 # Each phase appends the checks for its acceptance criteria.
 set -euo pipefail
 
@@ -70,7 +71,7 @@ reply=$(curl -fsS -X POST "$BASE/api/debug/ping") || fail "POST /api/debug/ping"
 job_id=$(sed -nE 's/.*"job_id":([0-9]+).*/\1/p' <<<"$reply")
 [[ -n "$job_id" ]] || fail "ping returned $reply"
 done_line=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 180); do  # the worker installs the crawler tools before it starts
     done_line=$(worker_log | grep -m1 "Job ping\[$job_id\].*ended with status: Success" || true)
     [[ -n "$done_line" ]] && break
     sleep 1
@@ -572,5 +573,114 @@ emitted=$(json_get "$(curl -fsS "$BASE/api/jobs/$long_run")" 'd["stats"]["emitte
 [[ "$emitted" -lt 1000 ]] || fail "long run emitted everything"
 in_app test ! -e "$data_dir/work/$long_run" || fail "work dir of run $long_run left behind"
 echo "PASS cancelling long run $long_run: cancelled ${elapsed}s after the request (emitted $emitted of 1000), work dir removed"
+
+# Phase 6: built-in add-ons with the real tools. A throwaway HTTP server next to the worker serves
+# generated media, so yt-dlp (generic extractor), gallery-dl (directlink) and direct run offline.
+in_worker() {
+    if [[ "$LOCAL" == 1 ]]; then
+        "$@"
+    else
+        "${compose[@]}" exec -T worker "$@"
+    fi
+}
+
+versions=""
+for _ in $(seq 1 120); do
+    versions=$(in_worker cat "$data_dir/tools/versions.json" 2>/dev/null || true)
+    [[ -n "$versions" ]] && break
+    sleep 1
+done
+[[ -n "$versions" ]] || fail "no $data_dir/tools/versions.json"
+[[ $(json_get "$versions" 'all(d[k] for k in ("yt-dlp", "yt-dlp-ejs", "gallery-dl")) and not d["error"]') == True ]] ||
+    fail "crawler tools not installed: $versions"
+in_app python -c 'import importlib.util, sys; sys.exit(any(importlib.util.find_spec(m) for m in ("yt_dlp", "gallery_dl")))' ||
+    fail "yt-dlp or gallery-dl is importable in the app environment"
+echo "PASS crawler tool venv: $(json_get "$versions" '{k: d[k] for k in ("yt-dlp", "yt-dlp-ejs", "gallery-dl", "deno")}'); not in the app venv"
+if [[ "$LOCAL" != 1 ]]; then
+    [[ $(json_get "$versions" 'bool(d["deno"])') == True ]] || fail "deno missing in the image: $versions"
+fi
+
+crawl_tag="p6$run_tag"
+crawl_dir="/tmp/smoke-crawl-$crawl_tag"
+in_worker python scripts/smoke_crawl_media.py "$crawl_dir" "$crawl_tag"
+media_port=8791
+if [[ "$LOCAL" == 1 ]]; then
+    python3 -m http.server "$media_port" --bind 127.0.0.1 --directory "$crawl_dir" >/dev/null 2>&1 &
+    media_server=$!
+    trap 'kill "$media_server" 2>/dev/null; rm -rf "$TMP"' EXIT
+else
+    "${compose[@]}" exec -d worker python -m http.server "$media_port" --bind 127.0.0.1 --directory "$crawl_dir"
+fi
+media_url="http://127.0.0.1:$media_port"
+served=""
+for _ in $(seq 1 30); do
+    in_worker python -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=2)' \
+        "$media_url/direct-$crawl_tag-1.png" >/dev/null 2>&1 && served=1 && break
+    sleep 1
+done
+[[ -n "$served" ]] || fail "media server on port $media_port not reachable from the worker"
+
+new_source() { # new_source <name> <addon> <config json>: create a source, print its id
+    json_get "$(post_json /api/sources "{\"name\": \"$1 $run_tag\", \"addon_key\": \"$2\", \"config\": $3}")" 'd["id"]'
+}
+run_source() { # run_source <source_id>: Run now and wait; prints the run JSON
+    wait_run "$(json_get "$(post_json "/api/sources/$1/run" '{}')" 'd["run_id"]')" 300
+}
+
+yt_id=$(new_source "yt-dlp" ytdlp "{\"urls\": [\"$media_url/clip-$crawl_tag.mp4\"], \"extra_args\": [\"--verbose\"]}")
+run=$(run_source "$yt_id")
+yt_run=$(json_get "$run" 'd["id"]')
+[[ $(json_get "$run" '(d["status"], d["stats"]["emitted"], d["stats"]["new"])') == "('succeeded', 1, 1)" ]] ||
+    fail "yt-dlp run: $run"
+remote=$(sql "SELECT remote_id FROM file_sources WHERE job_run_id = $yt_run")
+[[ "$remote" == "generic clip-$crawl_tag" ]] || fail "yt-dlp remote id: $remote"
+kind=$(sql "SELECT f.media_kind FROM files f JOIN file_sources s ON s.file_id = f.id WHERE s.job_run_id = $yt_run")
+[[ "$kind" == video ]] || fail "yt-dlp file is $kind"
+yt_log=$(curl -fsS "$BASE/api/jobs/$yt_run/log")
+runtimes=$(grep -o '\[debug\] JS runtimes: [^"\\]*' <<<"$yt_log" | head -1)
+if [[ "$LOCAL" != 1 ]]; then
+    [[ "$runtimes" == *deno-* ]] || fail "yt-dlp did not detect deno: '$runtimes'"
+    worker_log | grep -q "JS runtimes: deno-" || fail "worker log lacks the JS runtime line"
+fi
+echo "PASS ytdlp source: run $yt_run new 1 (video, remote id '$remote'); --verbose shows '$runtimes'"
+run=$(run_source "$yt_id")
+yt_run2=$(json_get "$run" 'd["id"]')
+[[ $(json_get "$run" '(d["status"], d["stats"]["emitted"], d["stats"]["new"])') == "('succeeded', 0, 0)" ]] ||
+    fail "second yt-dlp run: $run"
+grep -q "has already been recorded in the archive" <<<"$(curl -fsS "$BASE/api/jobs/$yt_run2/log")" ||
+    fail "second yt-dlp run did not use the archive"
+echo "PASS ytdlp second run $yt_run2 downloads nothing (archive hit)"
+
+gd_id=$(new_source "gallery-dl" gallerydl "{\"urls\": [\"$media_url/gallery-$crawl_tag-1.png\", \"$media_url/gallery-$crawl_tag-2.png\"],
+    \"tag_fields\": [\"extension=type\", \"category\"]}")
+run=$(run_source "$gd_id")
+gd_run=$(json_get "$run" 'd["id"]')
+[[ $(json_get "$run" '(d["status"], d["stats"]["new"])') == "('succeeded', 2)" ]] || fail "gallery-dl run: $run"
+remotes=$(sql "SELECT string_agg(remote_id, ',' ORDER BY remote_id) FROM file_sources WHERE job_run_id = $gd_run")
+[[ "$remotes" == "directlink:gallery-$crawl_tag-1,directlink:gallery-$crawl_tag-2" ]] || fail "gallery-dl remote ids: $remotes"
+gd_file=$(sql "SELECT file_id FROM file_sources WHERE job_run_id = $gd_run ORDER BY id LIMIT 1")
+state=$(tag_state "$gd_file")
+[[ "$state" == "active=directlink:crawler,type:png:crawler removed=" ]] || fail "gallery-dl tags: $state"
+echo "PASS gallerydl source: run $gd_run new 2 ($remotes) with tags from tag_fields ($state)"
+
+di_id=$(new_source "direct" direct "{\"urls\": [\"$media_url/direct-$crawl_tag-1.png\", \"$media_url/direct-$crawl_tag-2.png\"], \"tags\": [\"Direct Smoke\"]}")
+run=$(run_source "$di_id")
+di_run=$(json_get "$run" 'd["id"]')
+[[ $(json_get "$run" '(d["status"], d["stats"]["new"])') == "('succeeded', 2)" ]] || fail "direct run: $run"
+di_file=$(sql "SELECT file_id FROM file_sources WHERE job_run_id = $di_run ORDER BY id LIMIT 1")
+[[ $(tag_state "$di_file") == "active=direct_smoke:crawler removed=" ]] || fail "direct tags: $(tag_state "$di_file")"
+echo "PASS direct source: run $di_run new 2 image(s) with tags"
+
+in_app python -c 'from app.crawl.safety import check_ytdlp_args as c
+for a in (["--exec", "id"], ["--exec=id"], ["-o", "x"], ["--batch-fil", "x"]):
+    try:
+        c(a)
+    except ValueError:
+        continue
+    raise SystemExit(f"accepted {a}")' || fail "extra_args denylist"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -X POST "$BASE/api/sources" \
+    -d "{\"name\": \"Bad $run_tag\", \"addon_key\": \"ytdlp\", \"config\": {\"urls\": [\"https://example.org\"], \"extra_args\": [\"--exec=id\"]}}")
+[[ "$code" == 400 ]] || fail "source with --exec accepted ($code)"
+echo "PASS extra_args with --exec refused by the API ($code)"
 
 echo "All smoke checks passed."

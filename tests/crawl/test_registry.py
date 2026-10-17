@@ -53,7 +53,7 @@ def test_entry_point_demo_is_discovered() -> None:
     import importlib.metadata
 
     names = [ep.name for ep in importlib.metadata.entry_points(group=ENTRY_POINT_GROUP)]
-    assert "demo" in names
+    assert {"demo", "direct", "gallerydl", "ytdlp"} <= set(names)
     registry = discover(None)
     info = registry.get("demo")
     assert info is not None
@@ -91,7 +91,7 @@ def test_broken_addons_are_reported_and_skipped(tmp_path: Path) -> None:
     )
     registry = discover(addons)
 
-    assert set(registry.addons) == {"demo", "local_one"}
+    assert set(registry.addons) == {"demo", "direct", "gallerydl", "ytdlp", "local_one"}
     errors = {Path(e.origin).name: e.error for e in registry.errors}
     assert set(errors) == {
         "a_syntax.py",
