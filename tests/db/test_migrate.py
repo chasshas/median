@@ -11,7 +11,7 @@ def test_migrate_is_idempotent(migrated_db: str, db_conn: psycopg.Connection) ->
 
     assert ensure_job_schema(migrated_db) is False
     version = db_conn.execute("SELECT version_num FROM alembic_version").fetchone()
-    assert version == ("0006",)
+    assert version == ("0007",)
     jobs_table = db_conn.execute("SELECT to_regclass('public.procrastinate_jobs')").fetchone()
     assert jobs_table is not None
     assert jobs_table[0] is not None
@@ -27,6 +27,7 @@ def test_schema(db_conn: psycopg.Connection) -> None:
     assert {"files", "file_sources", "ingest_events", "folders", "tags", "file_tags"} <= tables
     assert {"similar_pairs", "video_frame_hashes", "review_actions"} <= tables
     assert {"crawl_sources", "job_runs", "saved_searches"} <= tables
+    assert {"app_settings", "schedule_state"} <= tables
     indexes = {
         r[0]: r[1]
         for r in db_conn.execute(
@@ -59,6 +60,8 @@ def test_schema(db_conn: psycopg.Connection) -> None:
         "backup",
         "update_tools",
         "purge_trash",
+        "recompute_similar",
+        "housekeeping",
     ]
     assert enums["job_status"] == ["queued", "running", "succeeded", "failed", "cancelled"]
     inbox = db_conn.execute("SELECT parent_id FROM folders WHERE name = 'Inbox'").fetchall()
@@ -100,6 +103,17 @@ def test_one_active_run_per_source(db_conn: psycopg.Connection) -> None:
     finally:
         db_conn.execute("DELETE FROM job_runs WHERE source_id = %s", (source_id,))
         db_conn.execute("DELETE FROM crawl_sources WHERE id = %s", (source_id,))
+
+
+def test_one_active_maintenance_run_per_kind(db_conn: psycopg.Connection) -> None:
+    try:
+        db_conn.execute("INSERT INTO job_runs (kind, status) VALUES ('backup', 'running')")
+        db_conn.execute("INSERT INTO job_runs (kind, status) VALUES ('backup', 'failed')")
+        db_conn.execute("INSERT INTO job_runs (kind, status) VALUES ('integrity', 'queued')")
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            db_conn.execute("INSERT INTO job_runs (kind, status) VALUES ('backup', 'queued')")
+    finally:
+        db_conn.execute("DELETE FROM job_runs WHERE kind IN ('backup', 'integrity')")
 
 
 def test_folder_names_unique_among_siblings(db_conn: psycopg.Connection) -> None:

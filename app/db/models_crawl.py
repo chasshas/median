@@ -33,6 +33,8 @@ class JobKind(enum.StrEnum):
     backup = "backup"
     update_tools = "update_tools"
     purge_trash = "purge_trash"
+    recompute_similar = "recompute_similar"
+    housekeeping = "housekeeping"
 
 
 class JobStatus(enum.StrEnum):
@@ -102,6 +104,13 @@ class JobRun(Base):
     __table_args__ = (
         Index("ix_job_runs_source_id", "source_id"),
         Index("ix_job_runs_queued_at", "queued_at"),
+        Index("ix_job_runs_kind_status", "kind", "status"),
+        Index(
+            "uq_job_runs_active_kind",
+            "kind",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running') AND kind <> 'crawl'"),
+        ),
         Index(
             "uq_job_runs_active_source",
             "source_id",

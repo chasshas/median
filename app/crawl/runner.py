@@ -257,6 +257,10 @@ async def run_crawl(
     except RunFailure as exc:
         error = str(exc)
         log.error("%s", error)
+    except asyncio.CancelledError:  # the worker is shutting down
+        status, error = JobStatus.failed, "interrupted"
+        log.error("interrupted")
+        raise
     except Exception as exc:
         error = _message(exc)
         log.exception("run failed")

@@ -4,6 +4,7 @@ import httpx
 
 from app.addons.demo import DemoAddon
 from app.crawl.registry import ENTRY_POINT_GROUP, Registry, discover
+from tests.conftest import SAME_ORIGIN
 
 GOOD = """
 from pydantic import BaseModel
@@ -133,7 +134,9 @@ async def test_sources_page_lists_addon_errors(app, tmp_path: Path, clean_ingest
         )
     )
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=SAME_ORIGIN
+    ) as client:
         page = await client.get("/sources")
         api = await client.get("/api/sources")
 

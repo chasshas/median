@@ -240,7 +240,7 @@ async def compute_perceptual(
     A file whose hashes cannot be computed stays reviewable; the reason is kept in
     metadata.perceptual_error.
     """
-    settings = settings or get_dedup_settings()
+    settings = settings or await get_dedup_settings(session)
     try:
         hashed = await compute_hashes(session, paths, file)
     except Exception as exc:
@@ -302,7 +302,9 @@ async def rehash(
 
     missing_only limits it to images without a pHash and videos without frame hashes.
     """
-    settings = settings or get_dedup_settings()
+    if settings is None:
+        async with sessionmaker() as session:
+            settings = await get_dedup_settings(session)
     stats = RehashStats()
     query = select(File.id).where(
         File.media_kind.in_([MediaKind.image, MediaKind.video]),
@@ -376,7 +378,9 @@ async def recompute_similar(
 
     Pairs that still match keep their dismissed flag; pairs that no longer match are deleted.
     """
-    settings = settings or get_dedup_settings()
+    if settings is None:
+        async with sessionmaker() as session:
+            settings = await get_dedup_settings(session)
     stats = RecomputeStats()
     async with sessionmaker() as session:
         await lock_dedup(session)

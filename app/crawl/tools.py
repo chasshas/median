@@ -73,7 +73,7 @@ def _run(args: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[st
     return result
 
 
-def _install_env(paths: DataPaths) -> dict[str, str]:
+def install_env(paths: DataPaths) -> dict[str, str]:
     env = dict(os.environ)
     # The app's own project settings must not leak into the tool venv.
     for name in ("UV_PROJECT_ENVIRONMENT", "VIRTUAL_ENV", "PYTHONPATH"):
@@ -82,21 +82,33 @@ def _install_env(paths: DataPaths) -> dict[str, str]:
     return env
 
 
+def create_venv(paths: DataPaths, env: dict[str, str]) -> None:
+    """Create the tool venv if it does not exist yet."""
+    venv = paths.tools_venv
+    if (venv / "bin" / "python").exists():
+        return
+    venv.parent.mkdir(parents=True, exist_ok=True)
+    uv = shutil.which("uv")
+    if uv:
+        _run([uv, "venv", "--python", sys.executable, str(venv)], env)
+    else:
+        _run([sys.executable, "-m", "venv", str(venv)], env)
+
+
+def pip_install_command(paths: DataPaths) -> list[str]:
+    """The installer for the tool venv, up to and including "install" (uv pip or pip)."""
+    python = str(paths.tools_venv / "bin" / "python")
+    uv = shutil.which("uv")
+    if uv:
+        return [uv, "pip", "install", "--python", python]
+    return [python, "-m", "pip", "install"]
+
+
 def install_tools(paths: DataPaths) -> None:
     """Create the venv if missing, then install or upgrade the tool packages."""
-    venv = paths.tools_venv
-    python = venv / "bin" / "python"
-    env = _install_env(paths)
-    uv = shutil.which("uv")
-    venv.parent.mkdir(parents=True, exist_ok=True)
-    if uv:
-        if not python.exists():
-            _run([uv, "venv", "--python", sys.executable, str(venv)], env)
-        _run([uv, "pip", "install", "--python", str(python), "--upgrade", *TOOL_PACKAGES], env)
-    else:
-        if not python.exists():
-            _run([sys.executable, "-m", "venv", str(venv)], env)
-        _run([str(python), "-m", "pip", "install", "--upgrade", *TOOL_PACKAGES], env)
+    env = install_env(paths)
+    create_venv(paths, env)
+    _run([*pip_install_command(paths), "--upgrade", *TOOL_PACKAGES], env)
 
 
 def installed_versions(paths: DataPaths) -> dict[str, str | None]:

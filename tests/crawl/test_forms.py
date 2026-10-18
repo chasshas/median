@@ -6,13 +6,16 @@ import pytest
 
 from app.crawl import service
 from app.crawl.forms import FormError, form_fields, parse_config_form
+from tests.conftest import SAME_ORIGIN
 from tests.crawl.addons import EveryFieldConfig
 
 
 @pytest.fixture
 async def client(crawl_app):
     transport = httpx.ASGITransport(app=crawl_app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=SAME_ORIGIN
+    ) as http:
         yield http
 
 

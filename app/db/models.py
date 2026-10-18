@@ -5,6 +5,7 @@ from app.db import (
     models_dedup,
     models_files,
     models_library,
+    models_ops,
     models_review,
     models_search,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "models_dedup",
     "models_files",
     "models_library",
+    "models_ops",
     "models_review",
     "models_search",
 ]

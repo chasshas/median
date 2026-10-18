@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,6 +20,13 @@ class Settings(BaseSettings):
     image_phash_threshold: int = Field(default=6, ge=0, le=64)
     video_frame_threshold: int = Field(default=8, ge=0, le=64)
     trash_retention_days: int = Field(default=7, ge=0)
+    # Phase 8. The next three, the thresholds, the retention and the time zone are defaults:
+    # values saved on /settings (app_settings) override them (app.ops.settings).
+    review_order: Literal["oldest", "newest"] = "oldest"
+    backup_retention: int = Field(default=14, ge=1)
+    tools_update_schedule: str = "0 5 * * 1"  # cron in APP_TIMEZONE: Mondays 05:00
+    # Signs session cookies. Empty: a random key is kept in DATA_DIR/secrets/session_key.
+    secret_key: str = ""
 
 
 @lru_cache

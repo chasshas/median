@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
@@ -7,8 +8,12 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import database_ok, get_session
+from app.db.models_crawl import JobKind, JobStatus
 from app.ingest.views import status_counts
 from app.jobs import job_counts
+from app.ops.housekeeping import free_space
+from app.ops.runs import latest_run
+from app.storage import get_paths
 from app.web import templates
 
 router = APIRouter()
@@ -31,7 +36,7 @@ NAV: tuple[NavItem, ...] = (
     NavItem("/tags", "Tags", None),
     NavItem("/sources", "Sources", None),
     NavItem("/jobs", "Jobs", None),
-    NavItem("/settings", "Settings", 8),
+    NavItem("/settings", "Settings", None),
 )
 
 
@@ -41,6 +46,13 @@ def render(request: Request, template: str, **context: object) -> HTMLResponse:
     )
 
 
+def _parse_time(value: object) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value)) if value else None
+    except ValueError:
+        return None
+
+
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(
     request: Request, session: Annotated[AsyncSession, Depends(get_session)]
@@ -48,7 +60,20 @@ async def dashboard(
     db_ok = await database_ok(request.app.state.engine)
     jobs = await job_counts(session) if db_ok else {}
     files = await status_counts(session) if db_ok else {}
-    return render(request, "dashboard.html", db_ok=db_ok, jobs=jobs, files=files)
+    measured = None
+    if db_ok:
+        last = await latest_run(session, JobKind.housekeeping, JobStatus.succeeded)
+        measured = (last.stats or {}).get("disk") if last is not None else None
+    return render(
+        request,
+        "dashboard.html",
+        db_ok=db_ok,
+        jobs=jobs,
+        files=files,
+        disk=free_space(get_paths()),
+        areas=(measured or {}).get("areas"),
+        measured_at=_parse_time((measured or {}).get("measured_at")),
+    )
 
 
 @router.get("/upload", response_class=HTMLResponse)

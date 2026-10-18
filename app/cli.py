@@ -5,6 +5,8 @@ python -m app.cli rehash [--missing-only]
 python -m app.cli recompute-similar
 python -m app.cli purge-trash
 python -m app.cli tools [--no-upgrade]
+python -m app.cli backup | integrity [--verify-hashes] | housekeeping | update-tools
+python -m app.cli restore [--yes] <dump file, or - for stdin>
 """
 
 import argparse
@@ -63,6 +65,54 @@ async def run_recompute_similar(database_url: str) -> dedup.RecomputeStats:
         return await dedup.recompute_similar(sessionmaker)
 
 
+async def retention_days(database_url: str) -> int:
+    from app.ops.settings import load_settings
+
+    async with job_sessionmaker(database_url) as sessionmaker, sessionmaker() as session:
+        return (await load_settings(session)).trash_retention_days
+
+
+async def run_job_now(name: str, **params: object) -> str:
+    """Run a maintenance task in this process; it records a job_runs row like the worker."""
+    from app.jobs import tasks
+
+    async with open_jobs(get_settings().database_url):
+        return await getattr(tasks, name)(job_run_id=None, **params)
+
+
+def restore(target: str, yes: bool, database_url: str) -> int:
+    from app.ops.backup import BackupError, restore_database, spool_stdin
+
+    paths = get_paths()
+    if target == "-":
+        dump = spool_stdin(sys.stdin.buffer, paths.backups)
+        cleanup = True
+    else:
+        dump = Path(target)
+        if not dump.is_absolute() and not dump.exists():
+            dump = paths.backups / target
+        cleanup = False
+    try:
+        if not dump.is_file():
+            print(f"no such dump: {target}", file=sys.stderr)
+            return 2
+        if not yes:
+            answer = input(f"Replace the database with {dump}? Type yes to continue: ")
+            if answer.strip() != "yes":
+                print("cancelled")
+                return 1
+        try:
+            entries = restore_database(database_url, dump)
+        except BackupError as exc:
+            print(f"restore failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"restored {entries} entries from {target}")
+        return 0
+    finally:
+        if cleanup:
+            dump.unlink(missing_ok=True)
+
+
 def print_stats(title: str, stats: dict[str, object]) -> None:
     print(f"{title}: " + ", ".join(f"{key} {value}" for key, value in stats.items()))
 
@@ -93,12 +143,32 @@ def main(argv: list[str] | None = None) -> int:
     tools.add_argument(
         "--no-upgrade", action="store_true", help="only install when the venv is missing"
     )
+    sub.add_parser("backup", help="dump the database to DATA_DIR/backups (recorded as a job run)")
+    integrity = sub.add_parser("integrity", help="compare the database with DATA_DIR")
+    integrity.add_argument(
+        "--verify-hashes", action="store_true", help="also re-hash every archive file"
+    )
+    sub.add_parser("housekeeping", help="delete old job runs and logs, measure disk usage")
+    sub.add_parser("update-tools", help="upgrade the crawler tools (recorded as a job run)")
+    rest = sub.add_parser("restore", help="replace the app database with a backup dump")
+    rest.add_argument("file", help="dump file (absolute, or a name in DATA_DIR/backups), or -")
+    rest.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     args = parser.parse_args(argv)
     if args.command == "tools":
         versions = ensure_tools(get_paths(), upgrade=not args.no_upgrade)
         print_stats("tools", versions)
         return 1 if versions.get("error") else 0
     database_url = get_settings().database_url
+
+    if args.command == "restore":
+        return restore(args.file, args.yes, database_url)
+    jobs = {"backup": "backup", "integrity": "integrity", "housekeeping": "housekeeping"}
+    jobs["update-tools"] = "update_tools"
+    if args.command in jobs:
+        params = {"verify_hashes": True} if getattr(args, "verify_hashes", False) else {}
+        result = asyncio.run(run_job_now(jobs[args.command], **params))
+        print(f"{args.command}: {result} (details on /jobs)")
+        return 0 if result == "succeeded" else 1
 
     if args.command == "rehash":
         stats = asyncio.run(run_rehash(args.missing_only, database_url))
@@ -109,9 +179,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "purge-trash":
-        stats = asyncio.run(
-            run_purge_trash(database_url, get_paths(), get_settings().trash_retention_days)
-        )
+        days = asyncio.run(retention_days(database_url))
+        stats = asyncio.run(run_purge_trash(database_url, get_paths(), days))
         print_stats("purge-trash", stats.as_dict())
         return 1 if stats.errors else 0
 

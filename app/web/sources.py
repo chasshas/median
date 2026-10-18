@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,9 +12,10 @@ from app.crawl.forms import FormError, form_fields, parse_config_form
 from app.crawl.registry import AddonInfo, Registry
 from app.crawl.views import app_registry, log_tail, run_views, source_views
 from app.db.engine import get_session
-from app.db.models_crawl import DEFAULT_MAX_RUNTIME_MINUTES, CrawlSource
+from app.db.models_crawl import DEFAULT_MAX_RUNTIME_MINUTES, CrawlSource, JobKind, JobStatus
 from app.library.folders import folder_choices
 from app.library.tags import split_tag_input
+from app.ops.integrity import FIXES, PROBLEMS
 from app.storage import get_paths
 from app.web.pages import render
 
@@ -252,15 +253,27 @@ async def delete_source(session: SessionDep, source_id: int) -> RedirectResponse
 
 @router.get("/jobs", response_class=HTMLResponse)
 async def jobs_page(
-    request: Request, session: SessionDep, source_id: int | None = None
+    request: Request,
+    session: SessionDep,
+    source_id: Annotated[int | None, Query()] = None,
+    kind: Annotated[list[str] | None, Query()] = None,
+    status_: Annotated[list[str] | None, Query(alias="status")] = None,
 ) -> HTMLResponse:
-    runs = await service.list_runs(session, source_id=source_id, limit=JOBS_PER_PAGE)
+    kinds = [JobKind(k) for k in kind or () if k in JobKind.__members__]
+    statuses = [JobStatus(s) for s in status_ or () if s in JobStatus.__members__]
+    runs = await service.list_runs(
+        session, source_id=source_id, kinds=kinds, statuses=statuses, limit=JOBS_PER_PAGE
+    )
     views = await run_views(session, runs)
     return render(
         request,
         "jobs.html",
         runs=views,
         source_id=source_id,
+        kinds=[k.value for k in JobKind],
+        statuses=[s.value for s in JobStatus],
+        selected_kinds={k.value for k in kinds},
+        selected_statuses={s.value for s in statuses},
         any_active=any(v.run.is_active for v in views),
     )
 
@@ -284,6 +297,8 @@ async def job_page(request: Request, session: SessionDep, run_id: int) -> HTMLRe
         run=view.run,
         log=log_tail(get_paths(), view.run),
         notice=request.query_params.get("notice"),
+        problems=PROBLEMS,
+        fixes=FIXES,
     )
 
 
@@ -297,6 +312,8 @@ async def job_live(request: Request, session: SessionDep, run_id: int) -> HTMLRe
         view=view,
         run=view.run,
         log=log_tail(get_paths(), view.run),
+        problems=PROBLEMS,
+        fixes=FIXES,
     )
 
 

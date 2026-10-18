@@ -417,11 +417,11 @@ async def test_purge_trash_respects_retention(sessionmaker, paths, db_conn) -> N
 
 @pytest.mark.usefixtures("settings")
 async def test_purge_trash_task_is_daily_and_uses_settings(sessionmaker, paths, db_conn) -> None:
-    from app.jobs.app import job_app
+    from app.db.models_crawl import JobKind
     from app.jobs.tasks import purge_trash as purge_task
+    from app.ops.schedule import FIXED_SCHEDULES
 
-    periodic = [p for p in job_app.periodic_registry.periodic_tasks.values()]
-    assert ("purge_trash", "17 3 * * *") in [(p.task.name, p.cron) for p in periodic]
+    assert FIXED_SCHEDULES[JobKind.purge_trash] == "30 3 * * *"  # daily, APP_TIMEZONE
 
     a, b = await pending(sessionmaker, paths, db_conn, 2)
     await decide(sessionmaker, service.discard, paths, [a, b])
@@ -429,9 +429,10 @@ async def test_purge_trash_task_is_daily_and_uses_settings(sessionmaker, paths, 
         "UPDATE files SET discarded_at = now() - interval '7 days 1 minute' WHERE id = %s", (a,)
     )
 
-    stats = await purge_task(timestamp=0)
+    assert await purge_task() == "succeeded"
 
-    assert stats == {"expired": 1, "purged": 1, "errors": 0}
+    stats = db_conn.execute("SELECT stats FROM job_runs WHERE kind = 'purge_trash'").fetchone()[0]
+    assert stats == {"expired": 1, "purged": 1, "errors": 0, "retention_days": 7}
     assert not paths.trash_path(file_row(db_conn, a)["sha"], "png").exists()
     assert paths.trash_path(file_row(db_conn, b)["sha"], "png").exists()
 

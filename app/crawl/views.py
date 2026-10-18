@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crawl.registry import Registry, get_registry
 from app.crawl.service import RunStats, last_runs, run_stats
-from app.db.models_crawl import CrawlSource, JobRun
+from app.db.models_crawl import CrawlSource, JobKind, JobRun
 from app.storage import DataPaths
+from app.web import filesize
 
 LOG_TAIL_LINES = 200
 LOG_TAIL_BYTES = 256 * 1024
@@ -38,6 +39,31 @@ class RunView:
             return (datetime.now(UTC) - self.run.started_at).total_seconds()
         return (self.run.finished_at - self.run.started_at).total_seconds()
 
+    @property
+    def is_crawl(self) -> bool:
+        return self.run.kind is JobKind.crawl
+
+    @property
+    def summary(self) -> str:
+        """One line about a maintenance run's result for the jobs list."""
+        stats = self.run.stats or {}
+        kind = self.run.kind
+        if kind is JobKind.backup and stats.get("file"):
+            return f"{stats['file']} ({filesize(stats.get('size_bytes'))})"
+        if kind is JobKind.integrity and "total_problems" in stats:
+            n = stats["total_problems"]
+            return "no problems" if n == 0 else f"{n} problem{'s' if n != 1 else ''}"
+        if kind is JobKind.update_tools and "after" in stats:
+            changed = stats.get("changed") or {}
+            if not changed:
+                return "no changes"
+            return ", ".join(f"{k} {v[1]}" for k, v in changed.items())
+        if kind is JobKind.housekeeping and "deleted_runs" in stats:
+            return f"{stats['deleted_runs']} old runs deleted"
+        if kind is JobKind.purge_trash and "purged" in stats:
+            return f"{stats['purged']} purged"
+        return ""
+
     def as_json(self) -> dict[str, object]:
         run = self.run
         return {
@@ -53,7 +79,8 @@ class RunView:
             "cancel_requested": run.cancel_requested,
             "error": run.error,
             "log_path": run.log_path,
-            "stats": self.stats.as_dict(),
+            "stats": self.stats.as_dict() if self.is_crawl else run.stats,
+            "summary": self.summary,
         }
 
 

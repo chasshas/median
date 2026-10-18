@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import get_session
 from app.db.models_files import FileStatus, MediaKind
+from app.ops.settings import current as current_settings
 from app.review import service
 from app.review.queue import QueueError, QueueFilters, review_queue
 from app.storage import get_paths
@@ -68,7 +69,7 @@ def queue_filters(
     batch: str | None = None,
     has_similar: str | None = None,
     similar_to_discarded: str | None = None,
-    order: Literal["oldest", "newest"] = "oldest",
+    order: Literal["oldest", "newest"] | None = None,
 ) -> QueueFilters:
     try:
         return QueueFilters(
@@ -78,7 +79,7 @@ def queue_filters(
             batch=batch or None,
             has_similar=_tristate("has_similar", has_similar),
             similar_to_discarded=_tristate("similar_to_discarded", similar_to_discarded),
-            order=order,
+            order=order or current_settings().review_order,
         )
     except QueueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
@@ -91,7 +92,7 @@ async def queue(
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> dict[str, object]:
-    """Pending files (or status=error ones), oldest collected first unless order=newest."""
+    """Pending files (or status=error ones), in the given order (default: the setting)."""
     try:
         page = await review_queue(session, filters, cursor or None, limit)
     except QueueError as exc:

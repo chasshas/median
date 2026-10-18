@@ -2,6 +2,7 @@
 {% block title %}Dashboard{% endblock %}
 {% block content %}
 <h1>Dashboard</h1>
+{% if disk.low %}<p class="banner banner-warning card" id="low-space-warning" role="alert"><strong>Low disk space:</strong> only {{ disk.free_bytes | filesize }} ({{ "%.1f" | format(disk.free_ratio * 100) }} percent) free on the data volume.</p>{% endif %}
 <section class="cards">
   <article class="card">
     <h2>Database</h2>
@@ -29,6 +30,19 @@
     </dl>
     {% else %}
     <p class="muted">Database unavailable.</p>
+    {% endif %}
+  </article>
+  <article class="card{% if disk.low %} disk-low{% endif %}" id="disk-usage">
+    <h2>Disk usage</h2>
+    <p><span id="disk-free">{{ disk.free_bytes | filesize }}</span> free of {{ disk.total_bytes | filesize }} ({{ "%.0f" | format(disk.free_ratio * 100) }} percent)</p>
+    <div class="disk-bar" aria-hidden="true"><span style="width: {{ "%.0f" | format((1 - disk.free_ratio) * 100) }}%"></span></div>
+    {% if areas %}
+    <dl class="counts" id="disk-areas">
+      {% for name, size in areas.items() %}<dt>{{ name }}</dt><dd data-area="{{ name }}">{{ size | filesize }}</dd>{% endfor %}
+    </dl>
+    <p class="muted">Measured {{ measured_at | localtime }} by the daily housekeeping job.</p>
+    {% else %}
+    <p class="muted">Usage per area is measured by the daily housekeeping job (or run it from <a href="/settings#maintenance">Settings</a>).</p>
     {% endif %}
   </article>
 </section>

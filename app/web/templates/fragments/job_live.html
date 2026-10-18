@@ -9,13 +9,21 @@
       <dt>Duration</dt><dd>{{ view.duration_seconds | seconds }}</dd>
       {% if run.error %}<dt>Error</dt><dd class="bad" id="job-error">{{ run.error }}</dd>{% endif %}
     </dl>
+    {% if view.is_crawl %}
     <dl class="counts" id="job-stats">
       {% for key, value in view.stats.as_dict().items() %}<dt>{{ key | replace("_", " ") }}</dt><dd data-stat="{{ key }}">{{ value }}</dd>{% endfor %}
     </dl>
+    {% elif run.stats and run.kind.value != "integrity" %}
+    {% if view.summary %}<p id="job-summary">{{ view.summary }}</p>{% endif %}
+    <details{% if run.kind.value == "update_tools" %} open{% endif %}><summary>Details</summary>
+      <pre class="job-stats-json" id="job-stats">{{ run.stats | tojson(indent=2) }}</pre>
+    </details>
+    {% endif %}
     {% if run.is_active %}
     <form method="post" action="/jobs/{{ run.id }}/cancel" class="inline-form"><button type="submit" class="danger" id="cancel-run">Cancel</button></form>
     {% endif %}
   </div>
+  {% if run.kind.value == "integrity" and run.stats.counts %}{% include "fragments/integrity_report.html" %}{% endif %}
   <h2>Log{% if run.log_path %} <span class="muted">{{ run.log_path }}</span>{% endif %}</h2>
   <pre class="job-log" id="job-log">{{ log or "(no output yet)" }}</pre>
 </section>

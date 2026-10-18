@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.crawl import service
 from app.crawl.views import log_tail, run_views
 from app.db.engine import get_session
+from app.db.models_crawl import JobKind, JobStatus
 from app.storage import get_paths
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -27,10 +28,14 @@ async def _run(session: AsyncSession, run_id: int):
 async def list_runs(
     session: SessionDep,
     source_id: int | None = None,
+    kind: Annotated[list[JobKind] | None, Query()] = None,
+    status_: Annotated[list[JobStatus] | None, Query(alias="status")] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict[str, object]:
-    runs = await service.list_runs(session, source_id=source_id, limit=limit, offset=offset)
+    runs = await service.list_runs(
+        session, source_id=source_id, kinds=kind, statuses=status_, limit=limit, offset=offset
+    )
     return {"runs": [v.as_json() for v in await run_views(session, runs)]}
 
 

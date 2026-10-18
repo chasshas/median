@@ -18,6 +18,8 @@ TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL", "postgresql://median:median@localhost:5432/median_test"
 )
 _APP_DATABASE_URL = os.environ.get("DATABASE_URL")
+# Unsafe methods need a same-origin Origin or Referer header (app.ops.auth).
+SAME_ORIGIN = {"Origin": "http://test"}
 
 
 def _db_name(url: str) -> str:
@@ -85,7 +87,9 @@ async def app(settings: Settings) -> AsyncIterator[FastAPI]:
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=SAME_ORIGIN
+    ) as http:
         yield http
 
 
@@ -108,12 +112,27 @@ def clean_ingest(migrated_db: str, data_dir: Path) -> Iterator[None]:
     with psycopg.connect(migrated_db, autocommit=True) as conn:
         conn.execute(
             "TRUNCATE review_actions, file_tags, tags, ingest_events, file_sources, files,"
-            " job_runs, crawl_sources, saved_searches, procrastinate_jobs RESTART IDENTITY CASCADE"
+            " job_runs, crawl_sources, saved_searches, app_settings, schedule_state,"
+            " procrastinate_jobs RESTART IDENTITY CASCADE"
         )
         conn.execute("DELETE FROM folders WHERE NOT (parent_id IS NULL AND name = 'Inbox')")
-    for name in ("staging", "archive", "thumbs", "trash", "work", "logs", "secrets", "addon_state"):
+    for name in (
+        "staging",
+        "archive",
+        "thumbs",
+        "trash",
+        "work",
+        "logs",
+        "secrets",
+        "addon_state",
+        "backups",
+    ):
         shutil.rmtree(data_dir / name, ignore_errors=True)
+    from app.ops.settings import reset_cache
+
+    reset_cache()
     yield
+    reset_cache()
 
 
 @pytest.fixture

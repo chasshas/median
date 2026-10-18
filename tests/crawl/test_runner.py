@@ -8,6 +8,7 @@ import pytest
 from app.crawl import runner, service
 from app.jobs import run_queued_jobs
 from app.library import folders
+from tests.conftest import SAME_ORIGIN
 from tests.crawl.helpers import make_source, queue, run_status, wait_for_status
 from tests.ingest.helpers import one
 
@@ -15,7 +16,9 @@ from tests.ingest.helpers import one
 @pytest.fixture
 async def client(crawl_app):
     transport = httpx.ASGITransport(app=crawl_app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=SAME_ORIGIN
+    ) as http:
         yield http
 
 

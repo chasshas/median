@@ -2,7 +2,9 @@
 
 from dataclasses import dataclass
 
-from app.config import Settings, get_settings
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.ops.settings import load_settings
 
 
 @dataclass(frozen=True)
@@ -11,9 +13,9 @@ class DedupSettings:
     video_frame_threshold: int
 
 
-def get_dedup_settings(settings: Settings | None = None) -> DedupSettings:
-    """Current thresholds. Values come from configuration; phase 8 lets app_settings override."""
-    settings = settings or get_settings()
+async def get_dedup_settings(session: AsyncSession) -> DedupSettings:
+    """Current thresholds: app_settings values over the environment defaults."""
+    settings = await load_settings(session)
     return DedupSettings(
         image_phash_threshold=settings.image_phash_threshold,
         video_frame_threshold=settings.video_frame_threshold,

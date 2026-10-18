@@ -92,10 +92,17 @@ def test_ensure_tools_never_raises(data: DataPaths, monkeypatch) -> None:
 def test_worker_installs_tools_then_execs_procrastinate(monkeypatch) -> None:
     seen: list[object] = []
     monkeypatch.delenv("MEDIAN_SKIP_TOOLS", raising=False)
+
+    async def recover() -> dict[str, list[int]]:
+        seen.append("recover")
+        return {}
+
+    monkeypatch.setattr(worker, "recover", recover)
     monkeypatch.setattr(worker, "ensure_tools", lambda: seen.append("tools"))
     monkeypatch.setattr(worker.os, "execvp", lambda prog, args: seen.append((prog, args)))
     worker.main(["--concurrency=4"])
     assert seen == [
+        "recover",
         "tools",
         (
             "procrastinate",

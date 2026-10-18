@@ -31,10 +31,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.db.models_files import File, FileSource, FileStatus, MediaKind
 from app.db.models_library import FileTag, Tag
 from app.library.folders import subtree_ids
+from app.ops.settings import current_timezone
 
 SearchSort = Literal[
     "archived_desc",
@@ -130,7 +130,7 @@ def day_bounds(
     start: date | None, end: date | None, tz: str | None = None
 ) -> tuple[datetime | None, datetime | None]:
     """Whole local days start..end (inclusive) in APP_TIMEZONE as UTC [lower, upper)."""
-    zone = ZoneInfo(tz or get_settings().app_timezone)
+    zone = ZoneInfo(tz) if tz else current_timezone()
 
     def midnight(day: date) -> datetime:
         return datetime.combine(day, time(0), zone).astimezone(UTC)

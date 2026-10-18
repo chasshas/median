@@ -39,9 +39,9 @@ def pair_ids(conn: psycopg.Connection) -> set[tuple[int, int]]:
     return {(a, b) for a, b, *_ in pairs(conn)}
 
 
-def test_settings_come_from_config(settings) -> None:
-    assert get_dedup_settings(settings) == DedupSettings(6, 8)
-    assert get_dedup_settings() == DedupSettings(6, 8)
+async def test_settings_come_from_config(sessionmaker, clean_ingest) -> None:
+    async with sessionmaker() as session:
+        assert await get_dedup_settings(session) == DedupSettings(6, 8)
 
 
 async def test_image_variants_are_flagged(sessionmaker, paths, db_conn) -> None:

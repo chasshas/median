@@ -81,6 +81,61 @@ async def defer_purge_trash() -> int:
     return await purge_trash.defer_async()
 
 
+MAINTENANCE_TASKS = {
+    "backup": "backup",
+    "integrity": "integrity",
+    "update_tools": "update_tools",
+    "housekeeping": "housekeeping",
+    "purge_trash": "purge_trash",
+    "rehash": "rehash",
+    "recompute_similar": "recompute_similar",
+}
+
+
+async def defer_maintenance(kind: str, job_run_id: int, params: dict[str, Any]) -> int:
+    """Queue the task of a maintenance run (job_runs row job_run_id). One waiting job per kind."""
+    import procrastinate.exceptions
+
+    from app.jobs import tasks
+
+    task = getattr(tasks, MAINTENANCE_TASKS[kind])
+    try:
+        return await task.configure(queueing_lock=f"maintenance-{kind}").defer_async(
+            job_run_id=job_run_id, **params
+        )
+    except procrastinate.exceptions.AlreadyEnqueued as exc:
+        raise AlreadyQueued(str(exc)) from exc
+
+
+async def stale_running_jobs(session: AsyncSession) -> list[int]:
+    """Queue jobs left in status doing (their worker is gone when a new worker starts)."""
+    exists = await session.scalar(text("SELECT to_regclass('public.procrastinate_jobs')"))
+    if exists is None:
+        return []
+    rows = await session.scalars(text("SELECT id FROM procrastinate_jobs WHERE status = 'doing'"))
+    return [int(i) for i in rows.all()]
+
+
+async def fail_queue_job(job_id: int) -> bool:
+    """Mark a queue job that is stuck in doing as failed (frees its locks)."""
+    from procrastinate.jobs import Status
+
+    try:
+        await job_app.job_manager.finish_job_by_id_async(
+            job_id=job_id, status=Status.FAILED, delete_job=False
+        )
+    except Exception:
+        return False
+    return True
+
+
+async def delete_old_queue_jobs(hours: int) -> None:
+    """Delete queue jobs that finished more than `hours` ago, whatever their final status."""
+    await job_app.job_manager.delete_old_jobs(
+        nb_hours=hours, include_failed=True, include_cancelled=True, include_aborted=True
+    )
+
+
 def crawl_lock(source_id: int) -> str:
     return f"crawl-source-{source_id}"
 

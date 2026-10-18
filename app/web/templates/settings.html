@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+{% if notice == "thresholds" %}
+<div class="notice card" id="notice">
+  <p>Saved. The similarity thresholds changed, so the stored similar pairs were computed with the old values.</p>
+  <form method="post" action="/settings/run/recompute_similar" class="inline-form"><button type="submit" id="recompute-similar">Recompute similar pairs now</button></form>
+</div>
+{% elif notice %}
+<p class="notice" id="notice">{{ {"saved": "Saved.", "already-active": "A run of this kind is already queued."}.get(notice, "") }}</p>
+{% endif %}
+
+<div class="settings-grid">
+<section class="card">
+  <h2>Preferences</h2>
+  <form method="post" action="/settings" class="settings-form" id="settings-form">
+    {% for s in info %}
+    <label>{{ s.label }}
+      {% if s.key == "review_order" %}
+      <select name="{{ s.key }}">
+        <option value="oldest"{% if values[s.key] == "oldest" %} selected{% endif %}>oldest collected first</option>
+        <option value="newest"{% if values[s.key] == "newest" %} selected{% endif %}>newest first</option>
+      </select>
+      {% elif s.key in ("app_timezone", "tools_update_schedule") %}
+      <input type="text" name="{{ s.key }}" value="{{ values[s.key] }}" required>
+      {% else %}
+      <input type="number" name="{{ s.key }}" value="{{ values[s.key] }}" required>
+      {% endif %}
+      <span class="help">{{ s.help }} Default ({{ s.env }}): <code>{{ defaults[s.key] }}</code>{% if s.key in overridden %} · <strong data-overridden="{{ s.key }}">changed here</strong>{% endif %}</span>
+      {% if errors[s.key] %}<span class="field-error" data-error="{{ s.key }}">{{ errors[s.key] }}</span>{% endif %}
+    </label>
+    {% endfor %}
+    <p class="help">Setting a value back to its default removes the override, so later changes to the environment apply again.</p>
+    <div class="actions"><button type="submit">Save</button></div>
+  </form>
+</section>
+
+<section class="card" id="maintenance">
+  <h2>Maintenance jobs</h2>
+  <table class="data-table">
+    <thead><tr><th scope="col">Job</th><th scope="col">Schedule</th><th scope="col">Next</th><th scope="col">Last run</th><th scope="col"></th></tr></thead>
+    <tbody>
+    {% for m in maintenance %}
+      <tr data-kind="{{ m.kind }}">
+        <td>{{ m.label }}</td>
+        <td>{% if m.schedule %}<code>{{ m.schedule }}</code>{% else %}<span class="muted">on demand</span>{% endif %}</td>
+        <td>{{ m.next | localtime if m.next else "" }}</td>
+        <td>{% if m.last %}<a href="/jobs/{{ m.last.id }}">#{{ m.last.id }}</a> <span class="job-status job-{{ m.last.status.value }}">{{ m.last.status.value }}</span> {{ (m.last.finished_at or m.last.queued_at) | localtime }}{% else %}<span class="muted">never</span>{% endif %}</td>
+        <td>
+          <form method="post" action="/settings/run/{{ m.kind }}" class="inline-form">
+            {% if m.kind == "integrity" %}<label class="checkbox"><input type="checkbox" name="verify_hashes" value="1"> verify hashes</label>{% endif %}
+            {% if m.kind == "rehash" %}<label class="checkbox"><input type="checkbox" name="all" value="1"> all files</label>{% endif %}
+            <button type="submit" data-run="{{ m.kind }}">Run now</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Schedules are cron expressions in {{ values.app_timezone }}. <a href="/jobs?kind=backup&amp;kind=integrity&amp;kind=update_tools&amp;kind=housekeeping&amp;kind=purge_trash&amp;kind=recompute_similar&amp;kind=rehash">All maintenance runs</a></p>
+</section>
+
+<section class="card" id="backups">
+  <h2>Database backups</h2>
+  {% if dumps %}
+  <ul>
+    {% for d in dumps %}<li><code>backups/{{ d.name }}</code> <span class="muted">{{ d.stat().st_size | filesize }}</span></li>{% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No backups yet.</p>
+  {% endif %}
+  <p class="muted">Restore with <code>make restore FILE=...</code>. Media (archive/ and thumbs/) are not in the dump: copy them with <code>make backup-files DEST=...</code>.</p>
+</section>
+
+<section class="card" id="tools">
+  <h2>Crawler tools</h2>
+  <dl class="meta" id="tool-versions">
+    {% for name in ("yt-dlp", "yt-dlp-ejs", "gallery-dl", "deno") %}
+    <dt>{{ name }}</dt><dd data-version="{{ name }}">{{ versions.get(name) or "not installed" }}</dd>
+    {% endfor %}
+    <dt>Checked</dt><dd>{{ versions.get("checked_at") or "never" }}</dd>
+    {% if versions.get("error") %}<dt>Error</dt><dd class="bad">{{ versions.error }}</dd>{% endif %}
+  </dl>
+  <h3>Last update</h3>
+  {% if last_update %}
+  <p id="last-update"><a href="/jobs/{{ last_update.id }}">#{{ last_update.id }}</a> <span class="job-status job-{{ last_update.status.value }}">{{ last_update.status.value }}</span> {{ (last_update.finished_at or last_update.queued_at) | localtime }}
+    {% if last_update.error %}<br><span class="bad">{{ last_update.error }}</span>{% endif %}
+    {% set changed = last_update.stats.get("changed") %}
+    {% if changed %}<br>{% for name, pair in changed.items() %}{{ name }} {{ pair[0] or "none" }} &rarr; {{ pair[1] or "none" }}{% if not loop.last %}, {% endif %}{% endfor %}{% elif last_update.stats.get("after") %}<br>No version changed.{% endif %}
+  </p>
+  {% else %}
+  <p class="muted">No update run yet (the worker also upgrades the tools when it starts).</p>
+  {% endif %}
+  <p class="muted">Deno ships with the image and is updated by rebuilding it.</p>
+</section>
+
+<section class="card" id="security">
+  <h2>Security</h2>
+  {% if password_set %}
+  <p class="ok">Password protection is on.</p>
+  {% else %}
+  <p class="bad">No password set (APP_PASSWORD is empty).</p>
+  {% endif %}
+  <p class="muted">Data directory free space: {{ disk.free_bytes | filesize }} of {{ disk.total_bytes | filesize }}.</p>
+</section>
+</div>
+{% endblock %}

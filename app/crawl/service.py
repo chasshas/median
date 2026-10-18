@@ -448,11 +448,21 @@ async def run_stats(session: AsyncSession, runs: list[JobRun]) -> dict[int, RunS
 
 
 async def list_runs(
-    session: AsyncSession, *, source_id: int | None = None, limit: int = 100, offset: int = 0
+    session: AsyncSession,
+    *,
+    source_id: int | None = None,
+    kinds: list[JobKind] | None = None,
+    statuses: list[JobStatus] | None = None,
+    limit: int = 100,
+    offset: int = 0,
 ) -> list[JobRun]:
     stmt = select(JobRun).order_by(JobRun.id.desc()).limit(limit).offset(offset)
     if source_id is not None:
         stmt = stmt.where(JobRun.source_id == source_id)
+    if kinds:
+        stmt = stmt.where(JobRun.kind.in_(kinds))
+    if statuses:
+        stmt = stmt.where(JobRun.status.in_(statuses))
     return list((await session.scalars(stmt)).all())
 
 

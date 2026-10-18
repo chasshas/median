@@ -22,7 +22,13 @@
       <input type="search" name="q" placeholder="Search" aria-label="Search the library" autocomplete="off"{% if current == "/search" %} value="{{ canonical | default('') }}"{% endif %}>
     </form>
     <button type="button" class="help-button" data-shortcuts-open title="Keyboard shortcuts (?)">?</button>
+    {% if request.app.state.settings.app_password %}
+    <form method="post" action="/logout" class="logout-form"><button type="submit" id="logout">Log out</button></form>
+    {% endif %}
   </header>
+  {% if not request.app.state.settings.app_password %}
+  <p class="banner banner-warning" id="no-password-banner" role="alert"><strong>No password set.</strong> Anyone who can reach this server can use Median. Set APP_PASSWORD (and SECRET_KEY) and restart, or keep it on a trusted LAN; see the README.</p>
+  {% endif %}
   <main>
     {% block content %}{% endblock %}
   </main>

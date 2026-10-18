@@ -3,7 +3,9 @@
 # Usage: scripts/smoke.sh [base_url]. COMPOSE selects the compose command (default "docker compose").
 # SMOKE_LOCAL=1 runs app commands on this machine instead of in the web container (cloud sessions);
 # then SMOKE_WORKER_LOG names the worker's log file and SQL runs through psql "$DATABASE_URL",
-# and the phase 6 media server runs here too.
+# the phase 6 media server runs here too, and SMOKE_RESTART_WORKER and SMOKE_RESTART_WEB are
+# commands that restart the worker and the web server (phase 8). Phase 8 recreates the database volume at the end (make restore check);
+# SMOKE_SKIP_RESTORE=1 skips that step.
 # Each phase appends the checks for its acceptance criteria.
 set -euo pipefail
 
@@ -48,6 +50,12 @@ json_get() {
 fail() {
     echo "FAIL: $*" >&2
     exit 1
+}
+
+# Unsafe methods need a same-origin Origin or Referer header (phase 8). Browsers send one; curl
+# does not, so every request here carries the Origin of BASE.
+curl() {
+    command curl -H "Origin: $BASE" "$@"
 }
 
 for _ in $(seq 1 60); do
@@ -784,5 +792,161 @@ in_moved=$(search_ids "folder=:\"Moved $run_tag\"")
 [[ "$in_moved" == "$got" ]] || fail "Moved $run_tag holds $in_moved, not $got"
 [[ $(search_ids "$query") == "" ]] || fail "results still in Animals after the move"
 echo "PASS bulk-moved the search results to Moved $run_tag ($in_moved)"
+
+# Phase 8: operations. Authentication (a second server with APP_PASSWORD), settings, backup,
+# integrity, tool updates, worker restart during a crawl, then make restore on a fresh database.
+in_app python scripts/smoke_auth.py || fail "authentication checks"
+
+for path in / /upload /review /library /search /tags /sources /jobs /settings; do
+    grep -q 'id="no-password-banner"' <<<"$(curl -fsS "$BASE$path")" || fail "no 'No password set' banner on $path"
+done
+grep -q 'id="disk-usage"' <<<"$(curl -fsS "$BASE/")" || fail "dashboard disk usage"
+echo "PASS without APP_PASSWORD every page shows the 'No password set' banner"
+code=$(command curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/debug/ping")
+[[ "$code" == 403 ]] || fail "POST without Origin returned $code"
+echo "PASS POST without an Origin or Referer header is refused (403)"
+
+settings_page=$(curl -fsS "$BASE/settings")
+grep -q 'id="settings-form"' <<<"$settings_page" || fail "/settings is not the settings page"
+location=$(curl -s -o /dev/null -w '%{redirect_url}' -X POST "$BASE/settings" --data-urlencode "image_phash_threshold=7")
+[[ "$location" == *"/settings?notice=thresholds" ]] || fail "threshold change redirected to $location"
+grep -q 'id="recompute-similar"' <<<"$(curl -fsS "$location")" || fail "no recompute offer after a threshold change"
+[[ $(sql "SELECT value FROM app_settings WHERE key = 'image_phash_threshold'") == 7 ]] || fail "setting not stored"
+curl -fsS -o /dev/null -X POST "$BASE/settings" --data-urlencode "image_phash_threshold=6"
+[[ $(sql "SELECT count(*) FROM app_settings WHERE key = 'image_phash_threshold'") == 0 ]] || fail "default not restored"
+echo "PASS /settings stores an override, offers recompute-similar after a threshold change, and drops the row at the default"
+
+wait_job() { # wait_job <run_id> [seconds]: wait until a maintenance run ended; print its JSON
+    local body=""
+    for _ in $(seq 1 "${2:-120}"); do
+        body=$(curl -fsS "$BASE/api/jobs/$1") || fail "GET /api/jobs/$1"
+        [[ $(json_get "$body" 'd["status"] not in ("queued", "running")') == True ]] && { echo "$body"; return; }
+        sleep 1
+    done
+    fail "job $1 did not finish: $body"
+}
+
+run_from_settings() { # run_from_settings <kind> [form fields...]: Run now; print the run id
+    local kind=$1 location
+    shift
+    location=$(curl -s -o /dev/null -w '%{redirect_url}' -X POST "$BASE/settings/run/$kind" "$@")
+    [[ "$location" =~ /jobs/([0-9]+)$ ]] || fail "Run now ($kind) redirected to '$location'"
+    echo "${BASH_REMATCH[1]}"
+}
+
+# Backup from /settings: a dump pg_restore can read. Counts are kept for the restore check.
+files_at_backup=$(sql "SELECT count(*) FROM files")
+tags_at_backup=$(sql "SELECT count(*) FROM tags")
+backup_run=$(run_from_settings backup)
+job=$(wait_job "$backup_run")
+[[ $(json_get "$job" 'd["status"]') == succeeded ]] || fail "backup run $backup_run: $job"
+dump=$(json_get "$job" 'd["stats"]["file"]')
+entries=$(in_app pg_restore --list "$data_dir/$dump" | grep -vc '^;')
+[[ "$entries" -gt 20 ]] || fail "pg_restore --list $dump shows $entries entries"
+grep -q "${dump#backups/}" <<<"$(curl -fsS "$BASE/settings")" || fail "/settings does not list $dump"
+echo "PASS backup from /settings (run $backup_run): $dump, $(json_get "$job" 'd["stats"]["size_bytes"]') bytes, pg_restore --list reads $entries entries ($(json_get "$job" 'd["stats"]["pg_dump"]'))"
+
+# Integrity: a clean report, then exactly the archive file deleted by hand.
+integrity_run=$(run_from_settings integrity -d verify_hashes=1)
+job=$(wait_job "$integrity_run" 300)
+[[ $(json_get "$job" '(d["status"], d["stats"]["total_problems"])') == "('succeeded', 0)" ]] ||
+    fail "baseline integrity run $integrity_run: $(json_get "$job" 'd["stats"]["counts"], d["stats"]["problems"]')"
+victim=$(sql "SELECT id FROM files WHERE status = 'archived' ORDER BY id LIMIT 1")
+victim_path=$(sql "SELECT 'archive/' || substr(h, 1, 2) || '/' || substr(h, 3, 2) || '/' || h || coalesce('.' || ext, '') FROM (SELECT encode(sha256, 'hex') AS h, ext FROM files WHERE id = $victim) f")
+in_app rm "$data_dir/$victim_path"
+integrity_run=$(run_from_settings integrity)
+job=$(wait_job "$integrity_run" 300)
+[[ $(json_get "$job" 'd["stats"]["total_problems"]') == 1 ]] || fail "integrity after deleting $victim_path: $(json_get "$job" 'd["stats"]["counts"]')"
+[[ $(json_get "$job" "d['stats']['problems']['missing_archive'] == [{'file_id': $victim, 'path': '$victim_path'}]") == True ]] ||
+    fail "integrity report: $(json_get "$job" 'd["stats"]["problems"]["missing_archive"]')"
+report=$(curl -fsS "$BASE/jobs/$integrity_run")
+grep -q 'data-count="missing_archive">1<' <<<"$report" && grep -qF "$victim_path" <<<"$report" ||
+    fail "job page $integrity_run does not show the report"
+echo "PASS integrity check (verify hashes) is clean, then reports exactly file $victim ($victim_path) after its archive file was deleted"
+
+# Crawler tool update from /settings: the versions appear there.
+tools_run=$(run_from_settings update_tools)
+job=$(wait_job "$tools_run" 900)
+[[ $(json_get "$job" 'd["status"]') == succeeded ]] || fail "update_tools run $tools_run: $job"
+ytdlp=$(json_get "$job" 'd["stats"]["after"]["yt-dlp"]')
+gdl=$(json_get "$job" 'd["stats"]["after"]["gallery-dl"]')
+settings_page=$(curl -fsS "$BASE/settings")
+grep -q "data-version=\"yt-dlp\">$ytdlp<" <<<"$settings_page" && grep -q "data-version=\"gallery-dl\">$gdl<" <<<"$settings_page" ||
+    fail "/settings does not show yt-dlp $ytdlp and gallery-dl $gdl"
+grep -q "\"gallery-dl\": \"$gdl\"" <<<"$(in_app cat "$data_dir/tools/versions.json")" || fail "versions.json"
+echo "PASS tool update (run $tools_run): /settings shows yt-dlp $ytdlp, gallery-dl $gdl; before $(json_get "$job" 'd["stats"]["before"]')"
+
+grep -q "data-run-id=\"$tools_run\"" <<<"$(curl -fsS "$BASE/jobs?kind=update_tools&status=succeeded")" || fail "/jobs kind filter"
+grep -q "data-run-id=\"$tools_run\"" <<<"$(curl -fsS "$BASE/jobs?kind=backup")" && fail "/jobs?kind=backup lists an update_tools run"
+echo "PASS /jobs filters by kind and status"
+
+# Restart the worker during a crawl: the run becomes failed "interrupted"; the next run works.
+restart_id=$(json_get "$(post_json /api/sources "{\"name\": \"Restart $run_tag\", \"addon_key\": \"demo\", \"config\": {\"count\": 300, \"seed\": $((seed + 3)), \"delay_seconds\": 1}, \"max_runtime_minutes\": 30}")" 'd["id"]')
+restart_run=$(json_get "$(post_json "/api/sources/$restart_id/run" '{}')" 'd["run_id"]')
+for _ in $(seq 1 60); do
+    [[ $(json_get "$(curl -fsS "$BASE/api/jobs/$restart_run")" 'd["status"] == "running" and d["stats"]["emitted"] >= 2') == True ]] && break
+    sleep 1
+done
+if [[ "$LOCAL" == 1 ]]; then
+    bash -c "${SMOKE_RESTART_WORKER:?set SMOKE_RESTART_WORKER with SMOKE_LOCAL=1}"
+else
+    "${compose[@]}" restart worker
+fi
+status=""
+for _ in $(seq 1 300); do
+    run=$(curl -fsS "$BASE/api/jobs/$restart_run")
+    status=$(json_get "$run" '(d["status"], d["error"])')
+    [[ "$status" == "('failed', 'interrupted')" ]] && break
+    sleep 1
+done
+[[ "$status" == "('failed', 'interrupted')" ]] || fail "run $restart_run after the worker restart: $status"
+curl -fsS -X PUT -H 'Content-Type: application/json' "$BASE/api/sources/$restart_id" \
+    -d "{\"name\": \"Restart $run_tag\", \"config\": {\"count\": 2, \"seed\": $((seed + 4))}, \"max_runtime_minutes\": 10}" >/dev/null ||
+    fail "PUT source $restart_id"
+next_run=$(json_get "$(post_json "/api/sources/$restart_id/run" '{}')" 'd["run_id"]')
+run=$(wait_run "$next_run" 300)
+[[ $(json_get "$run" '(d["status"], d["stats"]["new"])') == "('succeeded', 2)" ]] || fail "run after the restart: $run"
+echo "PASS worker restarted during run $restart_run: it is failed with error 'interrupted'; the next run $next_run of the source succeeded with 2 new files"
+
+# make restore on a fresh database brings the data of the backup back.
+if [[ "${SMOKE_SKIP_RESTORE:-0}" == 1 ]]; then
+    echo "SKIP make restore (SMOKE_SKIP_RESTORE=1)"
+elif [[ "$LOCAL" == 1 ]]; then
+    sql "DROP SCHEMA public CASCADE; CREATE SCHEMA public" >/dev/null
+    in_app python -m app.db.migrate >/dev/null
+    [[ $(sql "SELECT count(*) FROM files") == 0 ]] || fail "fresh database is not empty"
+    in_app python -m app.cli restore --yes "${dump#backups/}" || fail "restore $dump"
+    # Like make restore: web and worker start again on the restored database.
+    bash -c "${SMOKE_RESTART_WEB:?set SMOKE_RESTART_WEB with SMOKE_LOCAL=1}"
+    bash -c "$SMOKE_RESTART_WORKER"
+    for _ in $(seq 1 120); do
+        curl -fsS "$BASE/healthz" >/dev/null 2>&1 && break
+        sleep 1
+    done
+    echo "(local: dropped and restored the stack's database; CI runs make restore on a new volume)"
+else
+    "${compose[@]}" down
+    docker volume rm "$(docker volume ls -q --filter label=com.docker.compose.project=median --filter label=com.docker.compose.volume=pgdata)" >/dev/null
+    make up >/dev/null
+    for _ in $(seq 1 120); do
+        curl -fsS "$BASE/healthz" >/dev/null 2>&1 && break
+        sleep 1
+    done
+    [[ $(sql "SELECT count(*) FROM files") == 0 ]] || fail "the fresh stack is not empty"
+    make restore FILE="${dump#backups/}" CONFIRM=yes || fail "make restore $dump"
+    for _ in $(seq 1 180); do
+        curl -fsS "$BASE/healthz" >/dev/null 2>&1 && break
+        sleep 1
+    done
+fi
+if [[ "${SMOKE_SKIP_RESTORE:-0}" != 1 ]]; then
+    [[ $(sql "SELECT count(*) FROM files") == "$files_at_backup" ]] || fail "files after restore: $(sql "SELECT count(*) FROM files"), backup had $files_at_backup"
+    [[ $(sql "SELECT count(*) FROM tags") == "$tags_at_backup" ]] || fail "tags after restore"
+    [[ $(sql "SELECT version_num FROM alembic_version") == 0007 ]] || fail "migrations after restore"
+    curl -fsS "$BASE/library" >/dev/null || fail "library after restore"
+    job=$(wait_job "$(run_from_settings housekeeping)" 300)
+    [[ $(json_get "$job" 'd["status"]') == succeeded ]] || fail "housekeeping after restore: $job"
+    echo "PASS restore of $dump on a fresh database: $files_at_backup files and $tags_at_backup tags back, migrations current, jobs run again"
+fi
 
 echo "All smoke checks passed."

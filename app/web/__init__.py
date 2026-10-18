@@ -1,10 +1,9 @@
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from fastapi.templating import Jinja2Templates
 
-from app.config import get_settings
+from app.ops.settings import current_timezone
 
 WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
@@ -15,7 +14,7 @@ def localtime(value: datetime | None) -> str:
     """A UTC timestamp shown in APP_TIMEZONE."""
     if value is None:
         return ""
-    return value.astimezone(ZoneInfo(get_settings().app_timezone)).strftime("%Y-%m-%d %H:%M:%S %Z")
+    return value.astimezone(current_timezone()).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def filesize(value: int | None) -> str:

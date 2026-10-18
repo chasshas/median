@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Median</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+</head>
+<body>
+  <main class="login-page">
+    <form method="post" action="/login" class="card login-form" id="login-form">
+      <h1>Median</h1>
+      {% if error %}<p class="bad" id="login-error" role="alert">{{ error }}</p>{% endif %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <label>Password
+        <input type="password" name="password" autocomplete="current-password" autofocus required>
+      </label>
+      <button type="submit">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>

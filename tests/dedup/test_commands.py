@@ -56,4 +56,9 @@ async def test_tasks(app: FastAPI, sessionmaker, paths, db_conn: psycopg.Connect
     ).fetchall()
     assert jobs == [("recompute_similar", "succeeded"), ("rehash", "succeeded")]
     assert db_conn.execute("SELECT count(*) FROM similar_pairs").fetchone() == (1,)
-    assert (await tasks.rehash(missing_only=True))["considered"] == 0
+    assert await tasks.rehash(missing_only=True) == "succeeded"
+    runs = db_conn.execute(
+        "SELECT kind::text, status::text, stats->>'considered' FROM job_runs ORDER BY id"
+    ).fetchall()
+    assert runs[0][:2] == ("recompute_similar", "succeeded")
+    assert runs[-1] == ("rehash", "succeeded", "0")

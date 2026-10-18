@@ -1,0 +1,39 @@
+{% set stats = run.stats %}
+<section class="card integrity-report" id="integrity-report">
+  <h2>Integrity report</h2>
+  <p>{% if stats.total_problems == 0 %}<span class="ok">No problems found.</span>{% else %}<span class="bad">{{ stats.total_problems }} problem{{ "s" if stats.total_problems != 1 }}</span>{% endif %}
+    <span class="muted">Checked {{ stats.checked.files }} rows, {{ stats.checked.archive_files }} archive files, {{ stats.checked.staging_files }} staging files, {{ stats.checked.work_dirs }} work directories{% if stats.verify_hashes %}, re-hashed {{ stats.checked.hashed }} archive files{% else %}; hashes not verified{% endif %}.</span></p>
+  <table class="data-table" id="integrity-counts">
+    <tbody>
+    {% for kind, label in problems.items() %}
+      <tr data-problem="{{ kind }}"><th scope="row">{{ label }}</th><td class="num" data-count="{{ kind }}">{% if kind == "hash_mismatch" and not stats.verify_hashes %}<span class="muted">not checked</span>{% else %}{{ stats.counts[kind] }}{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% for kind, label in problems.items() %}{% if stats.counts[kind] %}
+  <details class="problem-list" data-problem-list="{{ kind }}"{% if stats.counts[kind] <= 20 %} open{% endif %}>
+    <summary>{{ label }} ({{ stats.counts[kind] }}{% if stats.counts[kind] > stats.problems[kind] | length %}, first {{ stats.problems[kind] | length }} listed{% endif %})</summary>
+    <ul>
+      {% for e in stats.problems[kind] %}
+      <li>{% if e.file_id %}<a href="/files/{{ e.file_id }}">file {{ e.file_id }}</a> {% endif %}<code>{{ e.path }}</code>{% if e.status %} <span class="muted">({{ e.status }})</span>{% endif %}{% if e.partial %} <span class="muted">(partial upload)</span>{% endif %}{% if e.expected %}<br><span class="muted">expected {{ e.expected }}, found {{ e.actual }}</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}{% endfor %}
+  {% if run.status.value == "succeeded" %}
+  <div class="fix-actions" id="fixes">
+    {% set fix_labels = {"thumbs": "Regenerate missing thumbnails", "staging": "Ingest orphan staging files", "work": "Delete leftover work directories"} %}
+    {% for action, kind in fixes.items() %}{% if stats.counts[kind] %}
+    <form method="post" action="/jobs/{{ run.id }}/fix/{{ action }}" class="inline-form"><button type="submit" data-fix="{{ action }}">{{ fix_labels[action] }} ({{ stats.counts[kind] }})</button></form>
+    {% endif %}{% endfor %}
+    {% if stats.fixes %}
+    <ul class="fix-results" id="fix-results">
+      {% for action, result in stats.fixes.items() %}
+      <li data-fix-result="{{ action }}"><strong>{{ fix_labels[action] }}</strong> at {{ result.at }}: {% if action == "thumbs" %}{{ result.regenerated }} regenerated{% if result.failed %}, failed for {{ result.failed | join(", ") }}{% endif %}{% elif action == "staging" %}{{ result.ingested }} ingested (batch <a href="/api/uploads/{{ result.batch_id }}">{{ result.batch_id[:8] }}</a>){% else %}{{ result.deleted }} deleted{% endif %}{% if result.skipped %}, {{ result.skipped | length if result.skipped is iterable and result.skipped is not string else result.skipped }} skipped{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <p class="muted">Missing originals, orphan archive files and hash mismatches are never changed automatically. Run the check again after a fix.</p>
+  </div>
+  {% endif %}
+</section>

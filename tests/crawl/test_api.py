@@ -2,13 +2,16 @@ import httpx
 import pytest
 
 from app.jobs import run_queued_jobs
+from tests.conftest import SAME_ORIGIN
 from tests.crawl.helpers import run_status
 
 
 @pytest.fixture
 async def client(crawl_app):
     transport = httpx.ASGITransport(app=crawl_app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=SAME_ORIGIN
+    ) as http:
         yield http
 
 

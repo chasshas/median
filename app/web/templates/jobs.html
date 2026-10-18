@@ -3,10 +3,20 @@
 {% block content %}
 <h1>Jobs</h1>
 {% if source_id %}<p class="muted">Runs of one source. <a href="/jobs">All runs</a></p>{% endif %}
-<div id="jobs-list"{% if any_active %} hx-get="{{ request.url.path }}{% if source_id %}?source_id={{ source_id }}{% endif %}" hx-trigger="every 2s" hx-select="#jobs-list" hx-swap="outerHTML"{% endif %}>
+<form method="get" action="/jobs" class="filter-form card" id="jobs-filter">
+  {% if source_id %}<input type="hidden" name="source_id" value="{{ source_id }}">{% endif %}
+  <fieldset><legend>Kind</legend>
+    {% for k in kinds %}<label class="checkbox"><input type="checkbox" name="kind" value="{{ k }}"{% if k in selected_kinds %} checked{% endif %}> {{ k | replace("_", " ") }}</label>{% endfor %}
+  </fieldset>
+  <fieldset><legend>Status</legend>
+    {% for s in statuses %}<label class="checkbox"><input type="checkbox" name="status" value="{{ s }}"{% if s in selected_statuses %} checked{% endif %}> {{ s }}</label>{% endfor %}
+  </fieldset>
+  <button type="submit">Filter</button>{% if selected_kinds or selected_statuses %} <a href="/jobs{% if source_id %}?source_id={{ source_id }}{% endif %}">Clear</a>{% endif %}
+</form>
+<div id="jobs-list"{% if any_active %} hx-get="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}" hx-trigger="every 2s" hx-select="#jobs-list" hx-swap="outerHTML"{% endif %}>
 {% if runs %}
 <table class="data-table card" id="jobs-table">
-  <thead><tr><th scope="col">Run</th><th scope="col">Kind</th><th scope="col">Source</th><th scope="col">Status</th><th scope="col">Queued</th><th scope="col">Duration</th><th scope="col" class="num">Emitted</th><th scope="col" class="num">New</th><th scope="col" class="num">Duplicate</th><th scope="col" class="num">Skipped</th><th scope="col" class="num">Errors</th></tr></thead>
+  <thead><tr><th scope="col">Run</th><th scope="col">Kind</th><th scope="col">Source</th><th scope="col">Status</th><th scope="col">Queued</th><th scope="col">Duration</th><th scope="col" class="num">Emitted</th><th scope="col" class="num">New</th><th scope="col" class="num">Duplicate</th><th scope="col" class="num">Skipped</th><th scope="col" class="num">Errors</th><th scope="col">Result</th></tr></thead>
   <tbody>
     {% for v in runs %}{% set r = v.run %}
     <tr data-run-id="{{ r.id }}" data-status="{{ r.status.value }}">
@@ -16,17 +26,23 @@
       <td><span class="job-status job-{{ r.status.value }}">{{ r.status.value }}</span></td>
       <td>{{ r.queued_at | localtime }}</td>
       <td>{{ v.duration_seconds | seconds }}</td>
+      {% if v.is_crawl %}
       <td class="num" data-stat="emitted">{{ v.stats.emitted }}</td>
       <td class="num" data-stat="new">{{ v.stats.new + v.stats.forced_reingest }}</td>
       <td class="num" data-stat="duplicate_exact">{{ v.stats.duplicate_exact }}</td>
       <td class="num" data-stat="skipped_known_remote">{{ v.stats.skipped_known_remote }}</td>
       <td class="num" data-stat="errors">{{ v.stats.errors }}</td>
+      <td>{% if r.error %}<span class="bad">{{ r.error | truncate(60) }}</span>{% endif %}</td>
+      {% else %}
+      <td colspan="5" class="muted">-</td>
+      <td data-summary>{% if r.error %}<span class="bad">{{ r.error | truncate(60) }}</span>{% else %}{{ v.summary }}{% endif %}</td>
+      {% endif %}
     </tr>
     {% endfor %}
   </tbody>
 </table>
 {% else %}
-<p class="muted">No runs yet. Start one from <a href="/sources">Sources</a>.</p>
+<p class="muted">No runs{% if selected_kinds or selected_statuses %} match these filters{% else %} yet. Start one from <a href="/sources">Sources</a> or <a href="/settings">Settings</a>{% endif %}.</p>
 {% endif %}
 </div>
 {% endblock %}
