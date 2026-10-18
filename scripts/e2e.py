@@ -208,6 +208,10 @@ class Stack:
     def restore(self, dump: Path) -> None:
         raise NotImplementedError
 
+    def logs(self) -> str:
+        """The tail of the web and worker logs, printed when a step failed."""
+        return ""
+
     def helper(self, args: list[str], stdin: bytes | None = None, timeout: float = 600) -> bytes:
         return self.app(["python", "scripts/e2e_helper.py", *args], stdin, timeout)
 
@@ -300,6 +304,15 @@ class ComposeStack(Stack):
         )
         if result.returncode != 0:
             raise StepFailed(f"docker compose cp {rel}: {result.stderr}")
+
+    def logs(self) -> str:
+        result = run(
+            [*self.compose, "logs", "--no-color", "--tail=150", "web", "worker"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout + result.stderr
 
     def restore(self, dump: Path) -> None:
         self._make("restore", f"FILE={dump}", "CONFIRM=yes")
@@ -418,6 +431,15 @@ class LocalStack(Stack):
 
     def fetch_data_file(self, rel: str, dest: Path) -> None:
         shutil.copyfile(Path(self.data_dir) / rel, dest)
+
+    def logs(self) -> str:
+        tails = []
+        for role in ("web", "worker"):
+            path = self.root / f"{role}.log"
+            if path.is_file():
+                lines = path.read_text(errors="replace").splitlines()[-150:]
+                tails.append(f"--- {role}.log\n" + "\n".join(lines))
+        return "\n".join(tails)
 
     def restore(self, dump: Path) -> None:
         # Like make restore: stop web and worker, restore from the file, start them again.
@@ -815,7 +837,8 @@ def main() -> int:
         try:
             a.start()
         except StepFailed as exc:
-            print(f"FAIL setup: {exc}")
+            failed = True
+            print(f"FAIL setup: {exc}", flush=True)
             return 1
         scenario = Scenario(a, b, workdir)
         for key, title in Scenario.STEPS:
@@ -834,6 +857,11 @@ def main() -> int:
             else:
                 print(f"PASS {key}. {title} ({time.monotonic() - t0:.0f} s): {detail}", flush=True)
     finally:
+        if failed:
+            for stack in (a, b):
+                text = stack.logs()
+                if text:
+                    print(f"=== logs of {stack.name} ===\n{text}")
         if keep:
             print(f"E2E_KEEP=1: {a.base} and {b.base} are still running (password {PASSWORD})")
         else:

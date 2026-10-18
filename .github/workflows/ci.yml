@@ -43,3 +43,21 @@ jobs:
       - name: Stop stack
         if: always()
         run: $COMPOSE down -v
+
+  e2e:
+    name: End-to-end acceptance (make e2e, twice)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker compose -f docker-compose.yml build
+
+      # scripts/e2e.py starts its own Compose projects with fresh volumes and removes them,
+      # so the second run starts from a clean state again.
+      - name: make e2e (first run)
+        run: make e2e
+
+      - name: make e2e (second run)
+        run: make e2e
