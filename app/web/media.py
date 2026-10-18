@@ -7,10 +7,19 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import get_session
-from app.db.models_files import File
+from app.db.models_files import File, MediaKind
 from app.storage import get_paths
 
 router = APIRouter(prefix="/media", tags=["media"])
+
+# Originals are untrusted content (uploads, crawled pages) served from the app's own origin.
+# A file that is not image, video or audio (HTML, SVG, PDF, ...) is a download, never a page,
+# and every original is sandboxed so a browser never runs a script from it with the session.
+INLINE_KINDS = frozenset({MediaKind.image, MediaKind.video, MediaKind.audio})
+ORIGINAL_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; img-src 'self'; media-src 'self'; sandbox",
+}
 
 
 async def _file(session: AsyncSession, file_id: int) -> File:
@@ -31,8 +40,9 @@ async def original(
     return FileResponse(
         path,
         media_type=file.mime or "application/octet-stream",
-        content_disposition_type="inline",
+        content_disposition_type="inline" if file.media_kind in INLINE_KINDS else "attachment",
         filename=file.original_filename or path.name,
+        headers=ORIGINAL_HEADERS,
     )
 
 

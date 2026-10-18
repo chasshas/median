@@ -122,6 +122,29 @@ async def test_media_routes_and_range(
     assert (await client.get("/media/999999/original")).status_code == 404
 
 
+async def test_media_original_never_runs_scripts(
+    client: httpx.AsyncClient, db_conn: psycopg.Connection
+) -> None:
+    page = b"<html><script>alert(document.cookie)</script></html>"
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    await upload(client, [("page.html", page), ("drawing.svg", svg), ("a.png", png_bytes())])
+    await run_queued_jobs()
+    rows = db_conn.execute("SELECT original_filename, id FROM files").fetchall()
+    ids = dict(rows)
+
+    for name in ("page.html", "drawing.svg"):
+        response = await client.get(f"/media/{ids[name]}/original")
+        assert response.status_code == 200
+        assert response.headers["content-disposition"].startswith("attachment;")
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert "sandbox" in response.headers["content-security-policy"]
+
+    image = await client.get(f"/media/{ids['a.png']}/original")
+    assert image.headers["content-disposition"].startswith("inline;")
+    assert image.headers["x-content-type-options"] == "nosniff"
+    assert "sandbox" in image.headers["content-security-policy"]
+
+
 async def test_retry_api(
     client: httpx.AsyncClient, db_conn: psycopg.Connection, monkeypatch
 ) -> None:
