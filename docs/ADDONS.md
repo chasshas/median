@@ -32,7 +32,7 @@ Two ways, both discovered when web and worker start (restart both after adding o
 
 2. A single file `DATA_DIR/addons/<name>.py` that defines a module-level `ADDON` (an `Addon` subclass or an instance). Files starting with `_` or `.` are ignored.
 
-An add-on that fails to import, has no `ADDON`, has an invalid key or a synchronous `run`, or reuses a key that is already taken is listed under "Add-on errors" on /sources (and in the logs). It never stops the app. When two add-ons have the same key, the first one wins: entry points (in name order) before files (in file name order).
+An add-on that fails to import, has no `ADDON`, has an invalid or reserved key (`upload`), a `ConfigModel` that is not a Pydantic model or has no JSON schema, or a synchronous or missing `run`, or reuses a key that is already taken is listed under "Add-on errors" on /sources (and in the logs). It never stops the app. When two add-ons have the same key, the first one wins: entry points (in name order) before files (in file name order).
 
 ## The interface
 
@@ -51,7 +51,7 @@ class Config(BaseModel):
 
 
 class Example(Addon):
-    key = "example"  # 1-50 of a-z, 0-9, _ ; stored as file_sources.source_key
+    key = "example"  # 1-50 of a-z, 0-9, _ ("upload" is reserved); file_sources.source_key
     name = "Example site"
     version = "1.0"
     description = "Downloads the newest posts of a feed."
@@ -81,6 +81,20 @@ class Example(Addon):
 ADDON = Example  # only needed for single-file add-ons
 ```
 
+`Addon` has the class attributes `key`, `name`, `version` (default `"0"`), `description` and `ConfigModel` (default: an empty model), and `async run(ctx, config)`, which receives a validated `ConfigModel` instance. Registration instantiates a subclass without arguments.
+
+### CrawledItem
+
+| Field | Meaning |
+| --- | --- |
+| `path` | The file, inside `work_dir` (a relative path is taken relative to it). It is moved into staging. |
+| `remote_id` | Stable id of the item for this add-on key, or `None` (see below). |
+| `url` | Page a person would open for this item. |
+| `title`, `description` | Stored on the file when it is new. |
+| `tags` | Crawler tags (the source's default tags are added). |
+| `metadata` | JSON-serializable dict, stored as `file_sources.raw_metadata`. |
+| `filename` | Original file name shown in Median; defaults to `path.name`. |
+
 ### Config forms
 
 /sources builds the create and edit form from `ConfigModel`'s JSON schema. Supported field types: `str`, `int`, `float`, `bool`, enums and `Literal[...]` (select), `list[str]` (one value per line), `SecretFile` (file upload). Optional fields (`X | None`) work. Anything else is edited as JSON. Field titles and descriptions come from Pydantic (`Field(description=...)`).
@@ -94,12 +108,14 @@ ADDON = Example  # only needed for single-file add-ons
 | `work_dir` | Empty directory for this run. Removed when the run ends, whatever the outcome. Emitted files are already moved out. |
 | `state_dir` | Persistent directory per source (`DATA_DIR/addon_state/<source_id>/`), for example a native download archive. Also `HOME` of subprocesses. |
 | `secrets_dir` | `DATA_DIR/secrets/<source_id>/`. |
+| `source_id`, `job_run_id` | Ids of the source and of this run. |
+| `emitted` | Number of items emitted so far in this run. |
 | `log` | A `logging.Logger` writing to `logs/jobs/<run_id>.log` (shown live on /jobs/<id>) and stdout. |
 | `await emit(item)` | Hands a file inside `work_dir` to the ingest service. Tags are crawler tags; the source's default tags are added. |
 | `await is_known(remote_id)`, `await known_remote_ids()` | Remote ids this add-on key already delivered, files in any status (discarded included). |
 | `is_cancelled()` | True within 2 seconds of a cancel request (or when the runtime limit is hit). Check it between items. |
 | `await sleep(seconds)` | Sleeps, returns True early if the run was cancelled. |
-| `await run_subprocess(args, timeout, cwd=None, env=None)` | Runs a program from an argument list (never a shell) in its own process group. The environment is only `PATH`, `LANG`, `HOME` (= `state_dir`) and `env`. Output goes line by line to the job log. The whole group is killed on timeout or cancellation. Returns `SubprocessResult(returncode, tail, timed_out, cancelled)` with the last 50 lines. |
+| `await run_subprocess(args, timeout=3600, cwd=None, env=None)` | Runs a program from an argument list (never a shell; a string is a `TypeError`) in its own process group, in `cwd` (default `work_dir`). The environment is only `PATH`, `LANG`, `HOME` (= `state_dir`), the proxy and CA bundle variables when the worker has them, and `env`. Output goes line by line to the job log. The whole group is killed on timeout or cancellation. Returns `SubprocessResult(returncode, tail, timed_out, cancelled)` with the last 50 lines; `result.ok` is true for exit code 0 without timeout or cancellation. |
 
 ### Runs
 

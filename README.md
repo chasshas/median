@@ -4,16 +4,19 @@ Median is a single-user, self-hosted service for collecting and archiving media.
 
 The full specification is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Progress is logged in [docs/PROGRESS.md](docs/PROGRESS.md) and design decisions in [docs/DECISIONS.md](docs/DECISIONS.md).
 
-## Getting started
+## Setup
 
-Requirements: Docker with the Compose plugin, and make.
+Requirements: a Linux machine (or any host with Docker) with Docker Engine and the Compose plugin, make, and disk space for your collection. Everything else (Python, PostgreSQL 18, ffmpeg, the crawler tools) runs in containers.
 
 ```sh
-cp .env.example .env      # adjust passwords, timezone, ports
-make up                   # build, start db, migrate, start web + worker
+git clone <this repository> median && cd median
+cp .env.example .env      # passwords, APP_TIMEZONE, WEB_PORT, APP_PASSWORD, SECRET_KEY
+make up                   # build the image, start db, migrate, start web + worker
 ```
 
-Open http://localhost:8000. `make logs` follows the logs and `make down` stops the stack.
+`make up` uses `docker-compose.override.yml`, which bind-mounts the source and reloads on changes (development). For a deployment, leave it out: `make up COMPOSE="docker compose -f docker-compose.yml"` (and the same `COMPOSE=...` for every other make target), or delete the override file.
+
+Media and state live in the `media-data` volume (mounted at `DATA_DIR`, default `/data`) and the database in `pgdata`. Set `APP_PASSWORD` and `SECRET_KEY` before the service is reachable from anywhere but your own machine (see Exposing the service).
 
 | Command | What it does |
 | --- | --- |
@@ -21,21 +24,37 @@ Open http://localhost:8000. `make logs` follows the logs and `make down` stops t
 | `make migrate` | Apply Alembic migrations and the Procrastinate schema (safe to repeat) |
 | `make test` | Run pytest in the web container against the test database |
 | `make lint` / `make format` | Check, or apply, ruff formatting and lint |
+| `make e2e` | End-to-end acceptance test on its own throwaway stacks (see Development) |
 | `make shell` / `make psql` | Open a shell in web, or psql on the app database |
 | `make backup` / `make restore FILE=...` | Dump the database now, or replace it with a dump (see Backups) |
 | `make backup-files DEST=...` | Copy archive/ and thumbs/ to a directory with rsync |
 
-To import an existing collection, put it in `./imports` (or set `IMPORTS_DIR`) and run `docker compose exec web python -m app.cli import /imports --recursive [--tags a,b] [--force]`. Files are copied; the originals stay where they are.
+## First run
 
-Perceptual duplicates: `python -m app.cli rehash [--missing-only]` recomputes image and video hashes from the originals and rebuilds their similar pairs; `python -m app.cli recompute-similar` rebuilds all pairs from stored hashes with the current thresholds (dismissed pairs stay dismissed). Run them with `docker compose exec web ...`.
+1. Open http://localhost:8000 (or your `WEB_PORT`). With `APP_PASSWORD` set you are asked to sign in first. The dashboard shows file counts, disk usage and job counts.
+2. Upload a few files at /upload (drag and drop or "choose files"; optional tags; "force" re-ingests a file you discarded before). The batch card shows how many were new and how many were exact duplicates.
+3. Review them at /review. Press `?` for the keys: J/K move, A archive (opens the archive panel to choose a folder and tags), D discard, S skip, C compare with similar files, X select, Shift+A/Shift+D for the selection, U undo, G grid. Discarded originals stay in `trash/` for `TRASH_RETENTION_DAYS` (default 7) so a discard can be undone.
+4. Organize at /library (folder tree, moves, bulk tags) and /tags (rename, merge, delete), and open any file at /files/<id>.
+5. Search at /search with the syntax of [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) section 12, for example `cat -dog folder:"Animals" collected:2026-01-01..2026-03-31 type:image`; the filter panel, autocomplete and saved searches help. The navigation bar's search box works on every page.
 
-Review: open http://localhost:8000/review and press `?` for the keyboard map (J/K move, A archive, D discard, S skip, C compare, X select, Shift+A/Shift+D for the selection, U undo, G grid). Discarded originals stay in `trash/` for `TRASH_RETENTION_DAYS` (default 7) so a discard can be undone; the worker purges older ones daily, and `python -m app.cli purge-trash` does it on demand.
+To import an existing collection, put it in `./imports` (or set `IMPORTS_DIR`) and run `docker compose exec web python -m app.cli import /imports --recursive [--tags a,b] [--force]`. Files are copied; the originals stay where they are. Progress: `GET /api/uploads/<batch_id>` or /review.
 
-Crawlers: /sources creates sources for the built-in add-ons (yt-dlp for video sites, gallery-dl for image galleries, direct links, demo) or your own (see [docs/ADDONS.md](docs/ADDONS.md)). The worker installs or upgrades yt-dlp and gallery-dl in `DATA_DIR/tools/venv` each time it starts (versions in `DATA_DIR/tools/versions.json`); `python -m app.cli tools` does it on demand.
+Perceptual duplicates: `python -m app.cli rehash [--missing-only]` recomputes image and video hashes from the originals and rebuilds their similar pairs; `python -m app.cli recompute-similar` rebuilds all pairs from stored hashes with the current thresholds (dismissed pairs stay dismissed). Run them with `docker compose exec web ...`, or from /settings.
 
-Search: /search takes the query syntax of [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) section 12 (`cat -dog folder:"Animals" collected:2026-01-01..2026-03-31 type:image`), with a filter panel, autocomplete and saved searches.
+## Adding sources
 
-Media and state live in the `media-data` volume (mounted at `DATA_DIR`, default `/data`), and the database lives in `pgdata`. `docker-compose.override.yml` is for development: it bind-mounts the source and reloads on changes. For a deployment, leave it out: `docker compose -f docker-compose.yml up -d`.
+/sources lists your crawl sources. "New source" offers every installed add-on:
+
+| Add-on | For | Main settings |
+| --- | --- | --- |
+| yt-dlp (video sites) | channels, playlists, single videos | URLs, format, max items, date after, uploader and category tags, cookies file, extra options |
+| gallery-dl (image galleries) | galleries, artist pages, boorus | URLs, which metadata fields become tags (`tags`, `artist=artist`), range, cookies file, extra options |
+| Direct links | plain file URLs | URLs, tags, size limit |
+| Demo images | trying Median without the network | count, seed, tags |
+
+Each source can have a cron schedule (in `APP_TIMEZONE`, for example `0 */6 * * *`), default tags, a default folder (preselected when you archive its files) and a maximum runtime. "Run now" starts a run; /jobs and /jobs/<id> show its live log, its counts (new, duplicate, already known) and a Cancel button. Files a source already delivered are skipped before download, even if you discarded them, and tags you removed never come back. Only download what you are allowed to download; cookies files are stored under `DATA_DIR/secrets` with mode 0600.
+
+yt-dlp and gallery-dl live in `DATA_DIR/tools/venv`, outside the app. The worker installs or upgrades them each time it starts and the update_tools job keeps them current (see Updating). Extra options that run commands, write elsewhere or load other configuration are refused. To write your own add-on, see [docs/ADDONS.md](docs/ADDONS.md).
 
 ## Settings
 
@@ -74,13 +93,40 @@ The database and the media are backed up separately.
 
 The integrity job (weekly, or from /settings) reports archived files whose original is missing, pending or failed files without their staging file, discarded files whose trash copy is gone before the retention ends, files in `archive/` or `staging/` without a matching row, leftover `work/` directories and missing thumbnails. With "verify hashes" (or `--verify-hashes`) it also re-hashes every archive file and reports mismatches. The report is on the run's page, with buttons for the safe fixes only: regenerate thumbnails, ingest orphan staging files, delete leftover work directories. Missing originals, orphan archive files and hash mismatches are never changed automatically.
 
-## Crawler tools
+## Updating
 
-yt-dlp and gallery-dl live in `DATA_DIR/tools/venv`. The worker upgrades them when it starts, and the update_tools job does it on its schedule or from /settings; /settings shows the installed versions and the result of the last update (also in `DATA_DIR/tools/versions.json`). Deno, the JavaScript runtime yt-dlp uses, is part of the image: it is updated by rebuilding the image (`make build`, after changing the version in the `Dockerfile`).
+- Median itself: back up first (`make backup`, and copy the dump off the machine), then `git pull` and `make up`. `make up` rebuilds the image, applies new migrations before web and worker start, and recreates the containers; data in the volumes stays. Read docs/PROGRESS.md for what changed.
+- Crawler tools: yt-dlp and gallery-dl are upgraded when the worker starts and by the update_tools job (default Mondays 05:00, setting "Crawler tool update schedule"); /settings shows the installed versions and the last change (also `DATA_DIR/tools/versions.json`). Run it now from /settings, or `docker compose exec web python -m app.cli update-tools`. Restarting the worker (`docker compose restart worker`) also upgrades them.
+- Deno (the JavaScript runtime yt-dlp uses) and ffmpeg are part of the image: change the version in the `Dockerfile` if needed and run `make up` to rebuild.
+- PostgreSQL stays on major version 18 (`postgres:18`); minor updates come with `docker compose pull db && make up`. A future major upgrade needs a dump and restore, not just a new image.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `make up` fails at the image build | The build needs Docker Hub, ghcr.io, deb.debian.org and apt.postgresql.org. Check the network or proxy; the build also fails on purpose if `pg_dump` is not version 18. |
+| The page does not load, port already in use | Another service uses 8000: set `WEB_PORT` in `.env` and `make up` again. |
+| A file stays in "processing" | The worker was stopped while it worked on it. Restart the worker (`docker compose restart worker`): files stuck for more than an hour are queued again at startup and by the daily housekeeping. |
+| A file is in the Failed tab of /review | Its processing raised an error (shown on the tile and at /files/<id>). Retry it there; files that cannot be decoded are still stored, as media kind "other". |
+| A crawl run failed | Open it on /jobs: the error and the log show the tool's output. yt-dlp and gallery-dl often need a newer version (Run now on "Crawler tool update" in /settings) or a cookies file. |
+| "No such file" for yt-dlp or gallery-dl | The worker could not install the tools (no network at startup); `DATA_DIR/tools/versions.json` has the error. Fix the network, then restart the worker. |
+| A run stays "running" after a crash | Restarting the worker marks it failed with "interrupted"; the next run works. |
+| A script gets 403 on POST | Unsafe requests need an `Origin` header naming the server (`curl -H "Origin: http://median.lan:8000" ...`). Behind a reverse proxy, pass the Host header through. |
+| The login does not stick behind a proxy | The cookie is Secure when uvicorn sees https: run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy>` when the proxy speaks http to it, and keep the Host header. |
+| Forgot the password | Change `APP_PASSWORD` in `.env` and `make down && make up`; every session ends. |
+| The dashboard warns about free space | Below 10 percent free on the data filesystem. Purge trash (/settings), delete old backups in `DATA_DIR/backups`, or grow the disk. Uploads and moves fail when the disk is full; nothing is deleted. |
+| The integrity report lists problems | See Integrity check. Missing originals need the media backup (`make backup-files`) copied back. |
+| Similar files are flagged too often or too rarely | Change the thresholds on /settings, then "Recompute similar pairs now". |
+
+Logs: `make logs` (web, worker, db) and the per-run job logs on /jobs/<id> (files in `DATA_DIR/logs/jobs/`).
+
+## Development
+
+Read [CLAUDE.md](CLAUDE.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Tests run with `make test` (`make test ARGS='-m "not slow"'` skips the timing tests); lint with `make lint`. `scripts/smoke.sh` checks the acceptance criteria of every phase against a running stack. `make e2e` runs the end-to-end acceptance test (`scripts/e2e.py`): it starts two throwaway Compose projects (`median-e2e-a`, `median-e2e-b`, fresh volumes, ports 18000 and 18001, a random password), drives the whole pipeline through the HTTP API, prints PASS or FAIL per step and removes the projects again; `E2E_KEEP=1` keeps them for inspection. [docs/MANUAL_CHECKLIST.md](docs/MANUAL_CHECKLIST.md) lists the checks to do in a browser. CI (`.github/workflows/ci.yml`) runs all of this on every push.
 
 ## Phases
 
-The project is built in ten phases, 0 to 9. The scope of each phase after 0 is provisional and will be confirmed as it starts.
+The project was built in ten phases, 0 to 9.
 
 | Phase | Scope |
 | --- | --- |
@@ -93,4 +139,4 @@ The project is built in ten phases, 0 to 9. The scope of each phase after 0 is p
 | 6 | Built-in add-ons (yt-dlp, gallery-dl, direct links) (done) |
 | 7 | Search and saved searches (done) |
 | 8 | Operations: auth, backup, integrity checks, settings, tool updates (done) |
-| 9 | Hardening and polish |
+| 9 | End-to-end acceptance, fixes and documentation (done) |
