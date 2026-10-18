@@ -288,6 +288,10 @@ button.danger, button[type="submit"].danger { background: var(--card); color: va
 .data-table { width: 100%; border-collapse: collapse; padding: 0; }
 .data-table th, .data-table td { text-align: left; padding: 0.35rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* On narrow screens a wide table scrolls inside itself instead of widening the page. */
+@media (max-width: 800px) {
+  .data-table, .tags-table { display: block; position: relative; max-width: 100%; overflow-x: auto; }
+}
 .notice { padding: 0.5rem 0.75rem; border-left: 4px solid var(--accent); background: var(--card); }
 .addon-errors { border-color: var(--bad); }
 .addon-errors code { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -357,7 +361,7 @@ button[type="submit"].toggle[aria-pressed="false"] { color: var(--muted); border
 .settings-form label { display: grid; gap: 0.2rem; }
 .settings-form .help { color: var(--muted); font-size: 0.85rem; }
 .settings-form .field-error { color: var(--bad); font-size: 0.85rem; }
-.settings-grid { display: grid; gap: 1rem; }
+.settings-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 .job-stats-json { max-height: 24rem; overflow: auto; font-size: 0.8rem; }
 .integrity-report table th { text-align: left; font-weight: normal; }
 .problem-list ul { padding-left: 1.2rem; font-size: 0.9rem; }
