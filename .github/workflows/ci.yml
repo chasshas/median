@@ -44,6 +44,47 @@ jobs:
         if: always()
         run: $COMPOSE down -v
 
+  install:
+    name: install.sh (fresh install, then update)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fresh install
+        run: ./install.sh --yes --password ci-install-pass
+
+      - name: Installed stack answers and asks for the password
+        run: |
+          set -eu
+          grep -q '^COMPOSE_FILE=docker-compose.yml$' .env
+          curl -fsS http://localhost:8000/healthz | grep -q '"database":"ok"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/)" = 303
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/api/jobs)" = 401
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Origin: http://localhost:8000' \
+            -d password=ci-install-pass http://localhost:8000/login)
+          test "$code" = 303
+          docker compose ps --status running --services | sort | tr '\n' ' ' | grep -q 'db web worker'
+
+      - name: Second run updates in place (backup first, .env kept)
+        run: |
+          set -eu
+          cp .env env.before
+          ./install.sh --yes 2>&1 | tee install2.log
+          grep -q 'Keeping the existing .env' install2.log
+          grep -q 'Backing up the database' install2.log
+          cmp .env env.before
+          docker compose exec -T web sh -c 'ls "$DATA_DIR"/backups/db-*.dump'
+          curl -fsS http://localhost:8000/healthz
+
+      - name: Stack logs
+        if: always()
+        run: docker compose logs --no-color
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v
+
   e2e:
     name: End-to-end acceptance (make e2e, twice)
     runs-on: ubuntu-latest

@@ -4,7 +4,19 @@ Median is a single-user, self-hosted service for collecting and archiving media.
 
 The full specification is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Progress is logged in [docs/PROGRESS.md](docs/PROGRESS.md) and design decisions in [docs/DECISIONS.md](docs/DECISIONS.md).
 
-## Setup
+## Install in one step
+
+On a Linux machine or a Mac with Docker (Docker Engine with the Compose plugin, or Docker Desktop) and git:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/chasshas/median/main/install.sh | sh
+```
+
+or, from a clone, `./install.sh`. The installer checks Docker, clones Median into `~/median` (`--dir` to change it), writes `.env` on the first run (random `SECRET_KEY` and database password, a login password you type or one it generates and prints, your machine's time zone, port 8000 or the next free one, and `COMPOSE_FILE=docker-compose.yml` so the stack runs without the development override), builds the image, applies the migrations, starts db, web and worker and waits until the service answers. At the end it prints the address and the login.
+
+Run it again to update: it pulls the code (fast-forward only), backs up the database if the stack is running, rebuilds and migrates. It never overwrites an existing `.env`. Options (`./install.sh --help`): `--yes` (no questions), `--port`, `--timezone`, `--password` or `--no-password`, `--branch`, `--install-docker` (Linux: install Docker with get.docker.com first), `--skip-backup`, `--configure-only` (write `.env` and stop). Windows users run it inside WSL 2 with Docker Desktop.
+
+## Setup by hand
 
 Requirements: a Linux machine (or any host with Docker) with Docker Engine and the Compose plugin, make, and disk space for your collection. Everything else (Python, PostgreSQL 18, ffmpeg, the crawler tools) runs in containers.
 
@@ -95,7 +107,7 @@ The integrity job (weekly, or from /settings) reports archived files whose origi
 
 ## Updating
 
-- Median itself: back up first (`make backup`, and copy the dump off the machine), then `git pull` and `make up`. `make up` rebuilds the image, applies new migrations before web and worker start, and recreates the containers; data in the volumes stays. Read docs/PROGRESS.md for what changed.
+- Median itself: `./install.sh` (it backs up the database, pulls, rebuilds and migrates), or by hand: back up first (`make backup`, and copy the dump off the machine), then `git pull` and `make up`. `make up` rebuilds the image, applies new migrations before web and worker start, and recreates the containers; data in the volumes stays. Read docs/PROGRESS.md for what changed.
 - Crawler tools: yt-dlp and gallery-dl are upgraded when the worker starts and by the update_tools job (default Mondays 05:00, setting "Crawler tool update schedule"); /settings shows the installed versions and the last change (also `DATA_DIR/tools/versions.json`). Run it now from /settings, or `docker compose exec web python -m app.cli update-tools`. Restarting the worker (`docker compose restart worker`) also upgrades them.
 - Deno (the JavaScript runtime yt-dlp uses) and ffmpeg are part of the image: change the version in the `Dockerfile` if needed and run `make up` to rebuild.
 - PostgreSQL stays on major version 18 (`postgres:18`); minor updates come with `docker compose pull db && make up`. A future major upgrade needs a dump and restore, not just a new image.
