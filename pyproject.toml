@@ -54,6 +54,8 @@ ignore = ["S101"]
 "tests/**" = ["S"]
 # Dev scripts run ffmpeg with fixed argument lists and draw random (non-secret) test media.
 "scripts/**" = ["S311", "S603", "S607"]
+# The e2e driver builds check queries from integer ids and fixed table names.
+"scripts/e2e.py" = ["S311", "S603", "S607", "S608"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

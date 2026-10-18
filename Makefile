@@ -1,7 +1,7 @@
 COMPOSE ?= docker compose
 RUN := $(COMPOSE) run --rm --no-deps web
 
-.PHONY: up down logs migrate test lint format shell psql build backup restore backup-files
+.PHONY: up down logs migrate test lint format shell psql build backup restore backup-files e2e
 
 ## Start db, apply migrations, then start web and worker.
 up:
@@ -21,6 +21,12 @@ build:
 ## Alembic upgrade head + Procrastinate schema (idempotent).
 migrate:
 	$(COMPOSE) run --rm web python -m app.db.migrate
+
+## End-to-end acceptance (phase 9): builds the image, runs its own stacks (Compose projects
+## median-e2e-a and median-e2e-b from docker-compose.yml, fresh volumes, ports 18000/18001)
+## and removes them at the end. E2E_LOCAL=1 runs the app natively instead (see the script).
+e2e:
+	python3 scripts/e2e.py
 
 ## pytest in the web container against TEST_DATABASE_URL.
 test:
